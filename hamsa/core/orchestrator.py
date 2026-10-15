@@ -12,10 +12,12 @@ from hamsa.core.models import (
     RelationType,
     TargetType,
 )
+from hamsa.core.agent_brain import AgentBrain
 from hamsa.plugins.base import BasePlugin
 from hamsa.plugins.email.hudsonrock_infostealer import HudsonRockInfostealerPlugin
 from hamsa.plugins.email.xposedornot_breach import XposedOrNotBreachPlugin
 from hamsa.plugins.exif.photo_metadata import ExifMetadataPlugin
+from hamsa.plugins.phone.contact_tags import ContactTagResolverPlugin
 from hamsa.plugins.phone.phone_infoga import PhoneInfogaDorksPlugin
 from hamsa.plugins.phone.phone_parser import PhoneParserPlugin
 from hamsa.plugins.phone.phone_presence import PhonePresencePlugin
@@ -39,6 +41,7 @@ class Orchestrator:
         self.register_plugin(HudsonRockInfostealerPlugin())
         self.register_plugin(PhoneParserPlugin())
         self.register_plugin(PhonePresencePlugin())
+        self.register_plugin(ContactTagResolverPlugin())
         self.register_plugin(PhoneInfogaDorksPlugin())
         self.register_plugin(ExifMetadataPlugin())
         self.register_plugin(NameResolverPlugin())
@@ -173,23 +176,29 @@ class Orchestrator:
                             )
                         )
 
-            # Prepare for next depth level
-            current_depth += 1
-            if recursive and current_depth <= max_depth and next_candidates:
-                # Deduplicate next round candidates and cap at 5 per round to prevent explosion
-                unique_next = []
-                seen_in_round = set()
-                for c_val, c_type, p_id in next_candidates:
-                    c_key = (c_val.strip().lower(), c_type)
-                    if c_key not in visited_targets and c_key not in seen_in_round:
-                        seen_in_round.add(c_key)
-                        unique_next.append((c_val, c_type, p_id))
-
-                current_targets = unique_next[:5]
-                log_info(
-                    f"Discovered {len(unique_next)} new entity candidate(s) for recursive analysis: "
-                    f"{', '.join([f'{c[0]} ({c[1].value})' for c in current_targets])}"
+            # Cognitive evaluation & autonomous recursive planning via AgentBrain
+            if recursive and current_depth < max_depth and next_candidates:
+                brain = AgentBrain(max_depth=max_depth)
+                plan = brain.evaluate_and_plan(
+                    graph=self.graph,
+                    current_depth=current_depth,
+                    raw_candidates=next_candidates,
+                    visited_keys=visited_targets,
                 )
+                for insight in plan.get("graph_insights", []):
+                    log_info(f"[AgentBrain] {insight}")
+
+                if plan["continue_investigation"] and plan["prioritized_targets"]:
+                    current_targets = plan["prioritized_targets"]
+                    current_depth += 1
+                    log_info(
+                        f"[AgentBrain] {plan['reason']} "
+                        f"Targets: {', '.join([f'{c[0]} ({c[1].value})' for c in current_targets])}"
+                    )
+                else:
+                    if plan.get("reason"):
+                        log_info(f"[AgentBrain] Investigation completed: {plan['reason']}")
+                    break
             else:
                 break
 

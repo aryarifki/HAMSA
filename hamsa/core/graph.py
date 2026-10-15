@@ -32,6 +32,12 @@ class KnowledgeGraph:
             self._edge_keys.add(key)
             self.edges.append(edge)
 
+    def clear(self) -> None:
+        """Clears all nodes and edges in the graph."""
+        self.nodes.clear()
+        self.edges.clear()
+        self._edge_keys.clear()
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "summary": {

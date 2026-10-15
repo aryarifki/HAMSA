@@ -103,20 +103,34 @@ class FastUsernameCheckerPlugin(BasePlugin):
         username: str,
         root_node_id: str,
     ) -> Optional[tuple[EntityNode, RelationEdge, List[tuple[str, TargetType, str]]]]:
-        url = platform["url"].format(username)
+        url_template = platform.get("url") or platform.get("uri_check", "")
+        if "{account}" in url_template:
+            url = url_template.replace("{account}", username)
+        elif "{}" in url_template:
+            url = url_template.replace("{}", username)
+        else:
+            url = f"{url_template.rstrip('/')}/{username}"
+
         candidates: List[tuple[str, TargetType, str]] = []
         try:
             status, body, _ = await self.http_client.request(url, method="GET", jitter=False)
             if status == platform.get("check_status", 200):
+                body_text = body.decode("utf-8", errors="ignore")
+
                 # Verify error marker if specified
                 error_marker = platform.get("error_marker")
-                if error_marker and error_marker in body.decode("utf-8", errors="ignore"):
+                if error_marker and error_marker in body_text:
                     return None
 
-                node_id = f"account:{platform['name'].lower()}:{username}"
+                # Verify valid marker if specified (WhatsMyName m_string)
+                valid_marker = platform.get("valid_marker")
+                if valid_marker and valid_marker not in body_text:
+                    return None
+
+                node_id = f"account:{platform['name'].lower().replace(' ', '_')}:{username}"
                 attributes = {
                     "platform": platform["name"],
-                    "category": platform["category"],
+                    "category": platform.get("category", "general"),
                     "profile_url": url,
                     "status_code": status,
                 }
@@ -174,6 +188,7 @@ class FastUsernameCheckerPlugin(BasePlugin):
         context: Optional[Dict[str, Any]] = None,
     ) -> PluginResult:
         start_time = asyncio.get_event_loop().time()
+        context = context or {}
         root_node_id = f"username:{target}"
         root_node = self.create_node(
             node_id=root_node_id,
@@ -186,11 +201,20 @@ class FastUsernameCheckerPlugin(BasePlugin):
         nodes: List[EntityNode] = [root_node]
         edges: List[RelationEdge] = []
         all_candidates: List[tuple[str, TargetType, str]] = []
-        logs: List[str] = [f"Checking username '{target}' across {len(PLATFORMS)} platforms..."]
+
+        # Dynamically load from SourceManager if available
+        from hamsa.core.sources import SourceManager
+        sm = SourceManager()
+        all_sites_flag = context.get("all_sites", False)
+        limit = None if all_sites_flag else 50
+        cached_platforms = sm.load_sites(limit=limit)
+
+        platforms_to_scan = cached_platforms if cached_platforms else list(PLATFORMS)
+        logs: List[str] = [f"Checking username '{target}' across {len(platforms_to_scan)} community platforms..."]
 
         tasks = [
             self._check_platform(platform, target, root_node_id)
-            for platform in PLATFORMS
+            for platform in platforms_to_scan
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

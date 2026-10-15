@@ -50,6 +50,9 @@ def create_parser() -> argparse.ArgumentParser:
     investigation = parser.add_argument_group("Investigation Options")
     investigation.add_argument("--depth", type=int, default=2, help="Maximum recursion depth for multi-round profiling (default: 2).")
     investigation.add_argument("--no-recursive", action="store_true", help="Disable automatic second-round scanning of discovered identities.")
+    investigation.add_argument("--all-sites", action="store_true", help="Scan across all 690+ sites for usernames (default scans top 50 to prevent rate-limiting).")
+    investigation.add_argument("--getcontact-token", metavar="TOKEN", help="Session token for direct GetContact tag retrieval (BYOT).")
+    investigation.add_argument("--truecaller-token", metavar="TOKEN", help="Bearer token for direct Truecaller tag retrieval (BYOT).")
 
     # Output Options
     outputs = parser.add_argument_group("Export Options")
@@ -123,6 +126,13 @@ async def main_async() -> int:
     if args.proxy:
         context["proxy"] = args.proxy
         log_info(f"Using proxy routing: {args.proxy}")
+    if args.all_sites:
+        context["all_sites"] = True
+        log_info("Username hunting: Unlocked full 690+ community platform database.")
+    if args.getcontact_token:
+        context["getcontact_token"] = args.getcontact_token
+    if args.truecaller_token:
+        context["truecaller_token"] = args.truecaller_token
 
     graph = await orchestrator.scan(
         targets_to_scan,

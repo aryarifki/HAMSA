@@ -172,15 +172,58 @@ class TestHamsaCore(unittest.TestCase):
                 os.remove(csv_path)
 
 
-    def test_phone_infoga_plugin(self):
-        from hamsa.plugins.phone.phone_infoga import PhoneInfogaDorksPlugin
+    def test_contact_tags_resolver_plugin(self):
+        from hamsa.plugins.phone.contact_tags import ContactTagResolverPlugin
 
-        plugin = PhoneInfogaDorksPlugin()
-        self.assertTrue(plugin.can_handle("08123456789", TargetType.PHONE))
-        res = asyncio.run(plugin.run("08123456789", TargetType.PHONE))
+        plugin = ContactTagResolverPlugin()
+        self.assertTrue(plugin.can_handle("+628123456789", TargetType.PHONE))
+        res = asyncio.run(plugin.run("+628123456789", TargetType.PHONE))
         self.assertTrue(res.success)
-        dork_nodes = [n for n in res.nodes if "google_search_url" in n.attributes]
-        self.assertGreaterEqual(len(dork_nodes), 3)
+        self.assertTrue(any("contact" in msg.lower() or "getcontact" in msg.lower() for msg in res.logs))
+
+    def test_agent_brain_planning(self):
+        from hamsa.core.agent_brain import AgentBrain
+
+        brain = AgentBrain(max_depth=2)
+        graph = KnowledgeGraph()
+        node = EntityNode(
+            id="email:victim@target.com",
+            type=TargetType.BREACH,
+            value="victim@target.com",
+            label="victim@target.com",
+            attributes={"real_name": "John Doe"},
+        )
+        graph.add_node(node)
+
+        raw_candidates = [
+            ("John Doe", TargetType.GENERIC, "email:victim@target.com"),
+            ("unknown", TargetType.USERNAME, "email:victim@target.com"),  # Garbage token
+            ("admin", TargetType.USERNAME, "email:victim@target.com"),    # Garbage token
+            ("johndoe99", TargetType.USERNAME, "email:victim@target.com"),
+        ]
+
+        plan = brain.evaluate_and_plan(
+            graph=graph,
+            current_depth=1,
+            raw_candidates=raw_candidates,
+            visited_keys=set(),
+        )
+
+        self.assertTrue(plan["continue_investigation"])
+        self.assertGreater(len(plan["prioritized_targets"]), 0)
+        # Verify garbage tokens were pruned
+        target_vals = [t[0].lower() for t in plan["prioritized_targets"]]
+        self.assertNotIn("unknown", target_vals)
+        self.assertNotIn("admin", target_vals)
+        self.assertIn("John Doe", [t[0] for t in plan["prioritized_targets"]])
+
+    def test_knowledge_graph_clear(self):
+        graph = KnowledgeGraph()
+        graph.add_node(EntityNode(id="test:1", type=TargetType.GENERIC, value="val", label="lbl"))
+        self.assertEqual(len(graph.nodes), 1)
+        graph.clear()
+        self.assertEqual(len(graph.nodes), 0)
+        self.assertEqual(len(graph.edges), 0)
 
 
 if __name__ == "__main__":

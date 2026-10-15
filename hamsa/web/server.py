@@ -154,6 +154,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="nav-actions">
       <button class="btn-action" onclick="updateSources()">🔄 Update 690+ Sources</button>
       <button class="btn-action" onclick="exportJSON()">📥 Export JSON</button>
+      <button class="btn-action" onclick="resetGraph()">🗑️ Reset Graph</button>
     </div>
   </header>
   <div id="main-layout">
@@ -246,6 +247,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           renderInspector(nodeItem.custom_data);
         }
       });
+      loadExistingGraph();
     }
 
     function switchTab(tab) {
@@ -317,48 +319,79 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           return;
         }
 
-        currentGraphData = res;
         addLog(`Scan complete! Discovered ${res.nodes.length} entities and ${res.edges.length} relations.`);
-
-        // Render Graph
-        visNodes.clear();
-        visEdges.clear();
-
-        const typeColors = {
-          email: "#3b82f6", username: "#10b981", phone: "#f59e0b",
-          breach: "#ef4444", location: "#8b5cf6", device: "#ec4899",
-          generic: "#06b6d4", image: "#06b6d4"
-        };
-
-        res.nodes.forEach(n => {
-          const color = typeColors[n.type] || "#94a3b8";
-          visNodes.add({
-            id: n.id,
-            label: n.label,
-            color: { background: color, border: "#ffffff" },
-            font: { color: "#ffffff" },
-            shape: "dot",
-            size: n.attributes && n.attributes.initial_target ? 24 : 16,
-            custom_data: n
-          });
-        });
-
-        res.edges.forEach(e => {
-          visEdges.add({
-            from: e.source,
-            to: e.target,
-            label: e.label,
-            arrows: "to",
-            color: { color: "#475569" },
-            font: { color: "#94a3b8", size: 10 }
-          });
-        });
-
-        network.fit();
+        renderGraphData(res);
       } catch (err) {
         btn.disabled = false;
         btn.textContent = "⚡ Launch Investigation";
         addLog(`Investigation request failed: ${err}`);
+      }
+    }
+
+    function renderGraphData(res) {
+      if (!res || !res.nodes) return;
+      currentGraphData = res;
+      visNodes.clear();
+      visEdges.clear();
+
+      const typeColors = {
+        email: "#3b82f6", username: "#10b981", phone: "#f59e0b",
+        breach: "#ef4444", location: "#8b5cf6", device: "#ec4899",
+        generic: "#06b6d4", image: "#06b6d4"
+      };
+
+      res.nodes.forEach(n => {
+        const color = typeColors[n.type] || "#94a3b8";
+        visNodes.add({
+          id: n.id,
+          label: n.label,
+          color: { background: color, border: "#ffffff" },
+          font: { color: "#ffffff" },
+          shape: "dot",
+          size: n.attributes && n.attributes.initial_target ? 24 : 16,
+          custom_data: n
+        });
+      });
+
+      res.edges.forEach(e => {
+        visEdges.add({
+          from: e.source,
+          to: e.target,
+          label: e.label,
+          arrows: "to",
+          color: { color: "#475569" },
+          font: { color: "#94a3b8", size: 10 }
+        });
+      });
+
+      network.fit();
+    }
+
+    async function loadExistingGraph() {
+      try {
+        const resp = await fetch('/api/graph');
+        if (resp.ok) {
+          const res = await resp.json();
+          if (res && res.nodes && res.nodes.length > 0) {
+            renderGraphData(res);
+            addLog(`Restored active session graph (${res.nodes.length} entities, ${res.edges.length} relations).`);
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function resetGraph() {
+      if (!confirm("Are you sure you want to reset the current investigation graph?")) return;
+      try {
+        const resp = await fetch('/api/reset', { method: 'POST' });
+        if (resp.ok) {
+          visNodes.clear();
+          visEdges.clear();
+          currentGraphData = { nodes: [], edges: [] };
+          addLog("Investigation graph reset successfully.");
+        }
+      } catch (err) {
+        alert("Failed to reset graph: " + err);
       }
     }
 
@@ -416,6 +449,9 @@ def _run_coroutine_sync(coro: Any) -> Any:
     return result
 
 
+GLOBAL_ORCHESTRATOR = Orchestrator()
+
+
 class HamsaApiHandler(BaseHTTPRequestHandler):
     """Custom HTTP request handler for the embedded Hamsa Web App & REST API."""
 
@@ -446,9 +482,10 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
 
         if path in ("/", "/dashboard", "/index.html"):
             self._send_html(DASHBOARD_HTML)
+        elif path == "/api/graph":
+            self._send_json(GLOBAL_ORCHESTRATOR.graph.to_dict())
         elif path == "/api/plugins":
-            orch = Orchestrator()
-            self._send_json({"plugins": orch.list_plugins()})
+            self._send_json({"plugins": GLOBAL_ORCHESTRATOR.list_plugins()})
         else:
             self.send_error(404, "Endpoint Not Found")
 
@@ -458,6 +495,11 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
 
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
+
+        if path == "/api/reset":
+            GLOBAL_ORCHESTRATOR.graph.clear()
+            self._send_json({"success": True, "message": "Graph reset successfully"})
+            return
 
         if path == "/api/update-sources":
             sm = SourceManager()
@@ -485,8 +527,7 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
                     self._send_json({"error": "No targets provided"}, status=400)
                     return
 
-                orch = Orchestrator()
-                graph = _run_coroutine_sync(orch.scan(targets, max_depth=depth, recursive=True))
+                graph = _run_coroutine_sync(GLOBAL_ORCHESTRATOR.scan(targets, max_depth=depth, recursive=True))
                 self._send_json(graph.to_dict())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=500)
