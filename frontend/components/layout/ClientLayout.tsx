@@ -12,13 +12,15 @@ import { useAppStore } from "@/store/useAppStore";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { activeTarget, sidebarOpen, setSidebarOpen } = useAppStore();
 
   const isHome = pathname === "/";
   const isGraph = pathname === "/graph";
   const isDetail = pathname.startsWith("/target");
   const isBreaches = pathname === "/breaches";
   const isContacts = pathname === "/contacts";
+  const isTimeline = pathname === "/timeline";
+
+  const { activeTarget, sidebarOpen, setSidebarOpen, activeCaseTitle } = useAppStore();
 
   const targetPath = `/target/${encodeURIComponent(activeTarget || "torvalds")}`;
 
@@ -61,6 +63,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 </span>
               </div>
             </Link>
+
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-xs text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-primary)] transition-all cursor-pointer"
+              title="Switch Investigation Case Workspace"
+            >
+              <Icon icon="ph:folder-user-duotone" width="14" className="text-[var(--md-sys-color-primary)]" />
+              <span className="font-mono text-[11px] truncate max-w-[150px]">{activeCaseTitle || "Primary Case"}</span>
+            </button>
           </div>
 
           {/* CENTER: DESKTOP NAVIGATION MENU */}
@@ -76,6 +87,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <Link href="/graph" className={desktopNavLinkClass(isGraph)}>
               <Icon icon={isGraph ? "ph:tree-structure-fill" : "ph:tree-structure-duotone"} width="15" />
               <span>Knowledge Graph</span>
+            </Link>
+            <Link href="/timeline" className={desktopNavLinkClass(isTimeline)}>
+              <Icon icon={isTimeline ? "ph:clock-countdown-fill" : "ph:clock-countdown-duotone"} width="15" />
+              <span>Timeline</span>
             </Link>
             <Link href="/breaches" className={desktopNavLinkClass(isBreaches)}>
               <Icon icon={isBreaches ? "ph:shield-warning-fill" : "ph:shield-warning-duotone"} width="15" />

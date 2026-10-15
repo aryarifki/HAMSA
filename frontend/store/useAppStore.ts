@@ -35,11 +35,20 @@ interface AppState {
   proxy: string;
   watchlist: TargetItem[];
   cacheLoading: CacheLoadingState;
+  activeCaseId: string;
+  activeCaseTitle: string;
+  cases: any[];
+  streamLiveNodes: boolean;
+  radarPings: number;
 
   setTheme: (theme: "dark" | "light") => void;
   toggleTheme: () => void;
   setSidebarOpen: (isOpen: boolean) => void;
   setActiveTarget: (target: string, type?: "username" | "email" | "phone" | "image") => void;
+  setActiveCase: (id: string, title?: string) => void;
+  setCases: (cases: any[]) => void;
+  setStreamLiveNodes: (enabled: boolean) => void;
+  incrementRadarPings: () => void;
   setDepth: (depth: number) => void;
   setRecursive: (recursive: boolean) => void;
   setAllSites: (allSites: boolean) => void;
@@ -84,6 +93,11 @@ export const useAppStore = create<AppState>()(
         progress: 0,
         isSuccess: false,
       },
+      activeCaseId: "case_default",
+      activeCaseTitle: "Primary Investigation Dossier",
+      cases: [],
+      streamLiveNodes: true,
+      radarPings: 0,
 
       setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
@@ -91,6 +105,14 @@ export const useAppStore = create<AppState>()(
       setSidebarOpen: (isOpen) => set({ sidebarOpen: isOpen }),
       setActiveTarget: (target, type = "username") =>
         set({ activeTarget: target, activeTargetType: type }),
+      setActiveCase: (id, title) =>
+        set((state) => ({
+          activeCaseId: id,
+          activeCaseTitle: title || state.activeCaseTitle,
+        })),
+      setCases: (cases) => set({ cases }),
+      setStreamLiveNodes: (enabled) => set({ streamLiveNodes: enabled }),
+      incrementRadarPings: () => set((state) => ({ radarPings: state.radarPings + 1 })),
       setDepth: (depth) => set({ depth }),
       setRecursive: (recursive) => set({ recursive }),
       setAllSites: (allSites) => set({ allSites }),

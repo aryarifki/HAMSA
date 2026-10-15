@@ -20,12 +20,15 @@ Dibangun dengan arsitektur **Zero Mandatory External Dependencies** (berjalan mu
 │                       HAMSA OSINT INTELLIGENCE SUITE                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  [ FRONTEND ]  Next.js 16 (App Router) • MD3 Warm Obsidian • Apache ECharts │
+│                SSE Real-Time Stream • Case Dossier Manager • Timeline View  │
 │                Zustand Store • SWR Caching • Standalone Dossier Print View  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  [ REST API ]  Port 8888 (Auto Safe-Port, Strict Exemption on Port 8080)    │
-│                Endpoints: /api/scan, /api/graph, /api/report, /api/watchlist│
+│                Endpoints: /api/scan, /api/scan/stream (SSE), /api/cases,    │
+│                /api/timeline, /api/evidence, /api/watchlist, /api/report    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  [ CORE ]      Agent Brain (Recursive Planner & Garbage Token Pruning)      │
+│                CaseManager (Multi-Case Workspace & Forensic Notes/Evidence) │
 │                Two-Tier Cache (L1 Memory LRU 0ms + L2 Redis Fallback)       │
 │                Graph Persistence (MemoryGraphBackend / Neo4jGraphBackend)   │
 │                ScanDiffEngine (Cross-Scan Perimeter Drift & Threat Scoring) │
@@ -81,6 +84,24 @@ Menghasilkan laporan investigasi berstandar dewan direksi (*board-ready*) atau p
 
 ### 7. Keamanan Port 8080 (Strict Port Isolation)
 Sistem memiliki mekanisme keamanan port ketat: server web HAMSA **tidak akan pernah menggunakan port 8080** (yang dicadangkan untuk crawler lokal seperti `ocrawler`). Port default backend adalah **8888** dan frontend adalah **3000**.
+
+### 8. Real-Time Event Streaming (SSE Radar Detection)
+Menyediakan pengalaman investigasi langsung (*alive radar experience*):
+- Endpoint `/api/scan/stream` mengalirkan event **Server-Sent Events (SSE)** murni berbasis Python Standard Library (`BaseHTTPRequestHandler` buffer flush).
+- Setiap kali plugin menemukan entitas baru, event `node_added` dan `edge_added` dipancarkan secara instan.
+- Frontend Apache ECharts langsung menganimasikan radar pings dan memunculkan node ke visual graph secara asinkron tanpa menunggu seluruh scan selesai.
+
+### 9. Multi-Case Investigation Dossiers (`CaseManager`)
+Pemisahan ruang kerja investigasi (*case isolation*) setara Maltego / Lampyre:
+- Menyimpan setiap kasus investigasi secara terisolasi di `~/.hamsa/cases/<case_id>.json`.
+- Mendukung multi-subjek, catatan forensik khusus investigator, tag status (Active, In-Review, Closed), serta manajemen bukti digital (*evidence snapshots*).
+- Memungkinkan beralih antar kasus secara instan tanpa kehilangan histori graf dan konfigurasi target.
+
+### 10. Interactive Graph Manipulation & Chronoforensic Timeline
+- **Node Pivoting**: Klik kanan atau pilih node apapun di graf (misal: Email baru ditemukan) untuk langsung menjalankan pemindaian rekursif (*Pivot / Scan This Entity*).
+- **Investigator Marking**: Menandai entitas target utama (*Primary Suspect* dengan halo merah menyala, *Verified Lead*, *False Positive*).
+- **Interactive Search Dimming**: Pencarian entitas dinamis meredupkan node non-relevan (opacity 15%) dan menerangi node target.
+- **Chronoforensic Timeline**: Halaman khusus `/timeline` yang mengekstrak dan mengurutkan seluruh metadata waktu (EXIF capture, breach years, infeksi malware) dengan filter kategori dan tautan kembali ke graf.
 
 ---
 
@@ -163,8 +184,16 @@ Frontend web interaktif akan tersedia di `http://localhost:3000`.
 
 | Method | Endpoint | Deskripsi |
 | :--- | :--- | :--- |
-| `GET` | `/api/graph` | Mengambil seluruh node dan edge dari knowledge graph aktif. |
+| `GET` | `/api/graph` | Mengambil seluruh node dan edge dari knowledge graph aktif (opsional: `?case_id=<id>`). |
 | `POST` | `/api/scan` | Memulai investigasi baru (`username`, `email`, `phone`, `depth`, `all_sites`, dll). |
+| `GET` | `/api/scan/stream` | **Server-Sent Events (SSE)**: Streaming radar pemindaian real-time (`node_added`, `edge_added`). |
+| `GET` | `/api/cases` | Mengambil daftar seluruh investigasi kasus (*case dossiers*). |
+| `POST` | `/api/cases` | Membuat kasus investigasi baru (`title`, `description`, `tags`). |
+| `GET` | `/api/cases/<id>` | Mengambil detail kasus lengkap beserta grafik dan bukti digital. |
+| `POST` | `/api/cases/<id>/annotate`| Menambahkan marking/tag investigasi pada node tertentu (`Primary Suspect`, `Verified Lead`). |
+| `POST` | `/api/cases/<id>/notes` | Menyimpan catatan forensik investigator untuk berkas perkara. |
+| `POST` | `/api/evidence/capture` | Menyimpan bukti digital (*forensic evidence snapshot*) ke dalam berkas kasus. |
+| `GET` | `/api/timeline` | Mengekstrak rekaman jejak kronologis (EXIF, breach dates, malware timestamps) per kasus. |
 | `GET` | `/api/report?format=html` | Mengunduh laporan dossier forensik berformat HTML cetak atau Markdown (`?format=markdown`). |
 | `POST` | `/api/report` | Membuat laporan kustom berdasarkan parameter JSON (`format`, `title`). |
 | `GET` | `/api/watchlist` | Mengambil daftar seluruh target dalam surveillance watchlist. |

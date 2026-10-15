@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import useSWR from "swr";
 import { Icon } from "@iconify/react";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -21,12 +22,53 @@ export default function Sidebar() {
     proxy,
     setProxy,
     setCacheLoading,
+    activeCaseId,
+    setActiveCase,
   } = useAppStore();
 
-  const [activeTab, setActiveTab] = useState<"params" | "tokens">("params");
+  const [activeTab, setActiveTab] = useState<"cases" | "params" | "tokens">("cases");
   const [localProxy, setLocalProxy] = useState(proxy);
   const [localGc, setLocalGc] = useState(getcontactToken);
   const [localTc, setLocalTc] = useState(truecallerToken);
+  const [newCaseTitle, setNewCaseTitle] = useState("");
+  const [newCaseDesc, setNewCaseDesc] = useState("");
+  const [creatingCase, setCreatingCase] = useState(false);
+
+  // SWR for cases list
+  const { data: casesData, mutate: mutateCases } = useSWR<{ cases: any[] }>("/api/cases", (url: string) => fetch(url).then(r => r.json()), {
+    revalidateOnFocus: true,
+  });
+  const casesList = casesData?.cases || [];
+
+  const handleCreateCase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCaseTitle.trim()) return;
+    try {
+      const res = await fetch("/api/cases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newCaseTitle, description: newCaseDesc }),
+      });
+      const data = await res.json();
+      if (data.case) {
+        setActiveCase(data.case.id, data.case.title);
+        setNewCaseTitle("");
+        setNewCaseDesc("");
+        setCreatingCase(false);
+        mutateCases();
+        setCacheLoading({
+          isOpen: true,
+          title: "Case Created",
+          step: `Activated Case workspace: ${data.case.title}`,
+          progress: 100,
+          isSuccess: true,
+        });
+        setTimeout(() => setCacheLoading(false), 800);
+      }
+    } catch (err) {
+      alert("Failed to create case: " + err);
+    }
+  };
 
   const handleSaveSettings = () => {
     setProxy(localProxy);
@@ -94,6 +136,16 @@ export default function Sidebar() {
         {/* TABS */}
         <div className="flex border-b border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)] text-xs font-semibold">
           <button
+            onClick={() => setActiveTab("cases")}
+            className={`flex-1 py-2.5 text-center transition-colors cursor-pointer ${
+              activeTab === "cases"
+                ? "border-b-2 border-[var(--md-sys-color-primary)] text-[var(--md-sys-color-primary)] font-bold bg-[var(--md-sys-color-surface-container-high)]"
+                : "text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
+            }`}
+          >
+            Cases ({casesList.length})
+          </button>
+          <button
             onClick={() => setActiveTab("params")}
             className={`flex-1 py-2.5 text-center transition-colors cursor-pointer ${
               activeTab === "params"
@@ -101,7 +153,7 @@ export default function Sidebar() {
                 : "text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
             }`}
           >
-            Parameters & Depth
+            Parameters
           </button>
           <button
             onClick={() => setActiveTab("tokens")}
@@ -111,13 +163,118 @@ export default function Sidebar() {
                 : "text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
             }`}
           >
-            BYOT API Tokens
+            Tokens
           </button>
         </div>
 
         {/* BODY */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {activeTab === "params" ? (
+          {activeTab === "cases" ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+                  Investigation Cases
+                </span>
+                <button
+                  onClick={() => setCreatingCase(!creatingCase)}
+                  className="px-2 py-1 rounded-lg bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-bold text-[11px] shadow-sm hover:opacity-90 transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Icon icon={creatingCase ? "ph:x-bold" : "ph:plus-bold"} width="12" />
+                  <span>{creatingCase ? "Cancel" : "New Case"}</span>
+                </button>
+              </div>
+
+              {/* CREATE CASE FORM */}
+              {creatingCase && (
+                <form onSubmit={handleCreateCase} className="p-3 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-primary)]/40 space-y-2.5 animate-in fade-in duration-150">
+                  <div className="text-[11px] font-bold text-[var(--md-sys-color-primary)]">
+                    Create Isolated Case Dossier
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Case Title (e.g. Operation Nightshade)"
+                    value={newCaseTitle}
+                    onChange={(e) => setNewCaseTitle(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] outline-none focus:border-[var(--md-sys-color-primary)]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Short description or lead objective..."
+                    value={newCaseDesc}
+                    onChange={(e) => setNewCaseDesc(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] outline-none focus:border-[var(--md-sys-color-primary)]"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full py-1.5 rounded-lg bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer"
+                  >
+                    Save & Activate Case
+                  </button>
+                </form>
+              )}
+
+              {/* CASES LIST */}
+              <div className="space-y-2">
+                {casesList.map((c) => {
+                  const isActive = c.id === activeCaseId;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        setActiveCase(c.id, c.title);
+                        setCacheLoading({
+                          isOpen: true,
+                          title: "Switching Case",
+                          step: `Active Case: ${c.title}`,
+                          progress: 100,
+                          isSuccess: true,
+                        });
+                        setTimeout(() => {
+                          setCacheLoading(false);
+                          window.location.reload();
+                        }, 500);
+                      }}
+                      className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-[var(--md-sys-color-primary-container)]/30 border-[var(--md-sys-color-primary)] shadow-sm"
+                          : "bg-[var(--md-sys-color-surface-container-high)] border-[var(--md-sys-color-outline-variant)]/60 hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+                              {c.title}
+                            </span>
+                            {isActive && (
+                              <span className="px-1.5 py-0.2 rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-mono text-[9px] font-bold">
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
+                          {c.description && (
+                            <p className="text-[11px] text-[var(--md-sys-color-on-surface-variant)] line-clamp-1 mt-0.5">
+                              {c.description}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)] flex-shrink-0">
+                          {c.id}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-[var(--md-sys-color-outline-variant)]/40 text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)]">
+                        <span>🎯 {c.targets_count || 0} Targets</span>
+                        <span>🌐 {c.entities_count || 0} Entities</span>
+                        <span>🔗 {c.relations_count || 0} Links</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : activeTab === "params" ? (
             <>
               {/* RECURSION DEPTH */}
               <div className="space-y-2">

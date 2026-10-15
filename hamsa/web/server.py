@@ -492,7 +492,55 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
 
         if path in ("/", "/dashboard", "/index.html"):
             self._send_html(DASHBOARD_HTML)
+        elif path == "/api/cases":
+            from hamsa.core.cases import CaseManager
+            cm = CaseManager()
+            self._send_json({"cases": cm.list_cases()})
+        elif path.startswith("/api/cases/"):
+            from hamsa.core.cases import CaseManager
+            cid = path.replace("/api/cases/", "").strip()
+            cm = CaseManager()
+            case = cm.get_case(cid)
+            if case:
+                self._send_json(case.to_dict())
+            else:
+                self._send_json({"error": "Case not found"}, status=404)
+        elif path == "/api/timeline":
+            from hamsa.core.reporting import ReportGenerator
+            from hamsa.core.cases import CaseManager
+            cid = query.get("case_id", [""])[0]
+            if cid:
+                cm = CaseManager()
+                case = cm.get_case(cid)
+                if case and case.graph_data:
+                    from hamsa.core.graph import KnowledgeGraph
+                    from hamsa.core.models import EntityNode
+                    temp_graph = KnowledgeGraph()
+                    for nd in case.graph_data.get("nodes", []):
+                        temp_graph.add_node(EntityNode(
+                            id=nd["id"],
+                            type=TargetType(nd["type"]) if nd["type"] in TargetType._value2member_map_ else TargetType.GENERIC,
+                            value=nd["value"],
+                            label=nd["label"],
+                            attributes=nd.get("attributes", {}),
+                            confidence=nd.get("confidence", 1.0),
+                        ))
+                    reporter = ReportGenerator(temp_graph)
+                    self._send_json({"timeline": reporter.generate_timeline(), "case_id": cid})
+                    return
+            reporter = ReportGenerator(GLOBAL_ORCHESTRATOR.graph)
+            self._send_json({"timeline": reporter.generate_timeline(), "case_id": "active"})
+        elif path == "/api/scan/stream":
+            self.handle_sse_scan(query)
         elif path == "/api/graph":
+            cid = query.get("case_id", [""])[0]
+            if cid:
+                from hamsa.core.cases import CaseManager
+                cm = CaseManager()
+                case = cm.get_case(cid)
+                if case:
+                    self._send_json(case.graph_data)
+                    return
             self._send_json(GLOBAL_ORCHESTRATOR.graph.to_dict())
         elif path == "/api/plugins":
             self._send_json({"plugins": GLOBAL_ORCHESTRATOR.list_plugins()})
@@ -522,12 +570,141 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Endpoint Not Found")
 
+    def handle_sse_scan(self, query: Dict[str, List[str]]) -> None:
+        """Streams real-time OSINT scan events using Server-Sent Events (SSE)."""
+        username = query.get("username", [""])[0]
+        email = query.get("email", [""])[0]
+        phone = query.get("phone", [""])[0]
+        depth = int(query.get("depth", ["2"])[0])
+        case_id = query.get("case_id", ["case_default"])[0]
+        all_sites = query.get("all_sites", ["false"])[0].lower() == "true"
+
+        targets = []
+        if username:
+            targets.append((username, TargetType.USERNAME))
+        if email:
+            targets.append((email, TargetType.EMAIL))
+        if phone:
+            targets.append((phone, TargetType.PHONE))
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        def send_sse(event_name: str, payload_data: Any) -> None:
+            try:
+                chunk = f"event: {event_name}\ndata: {json.dumps(payload_data, ensure_ascii=False)}\n\n".encode("utf-8")
+                self.wfile.write(chunk)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        send_sse("connected", {"status": "streaming_ready", "case_id": case_id, "targets": [t[0] for t in targets]})
+
+        if not targets:
+            send_sse("error", {"message": "No valid targets supplied"})
+            return
+
+        context = {"all_sites": all_sites}
+
+        def on_event_emitter(event_name: str, event_data: Any) -> None:
+            send_sse(event_name, event_data)
+
+        try:
+            graph = _run_coroutine_sync(
+                GLOBAL_ORCHESTRATOR.scan(
+                    targets,
+                    context=context,
+                    max_depth=depth,
+                    recursive=True,
+                    on_event=on_event_emitter,
+                )
+            )
+            # Persist graph into case workspace
+            from hamsa.core.cases import CaseManager
+            cm = CaseManager()
+            case = cm.get_case(case_id)
+            if not case:
+                case = cm.create_case(title=f"Investigation: {', '.join([t[0] for t in targets])}", case_id=case_id)
+            case.graph_data = graph.to_dict()
+            for t, typ in targets:
+                if not any(et.get("value") == t for et in case.targets):
+                    case.targets.append({"value": t, "type": typ.value})
+            cm.save_case(case)
+
+            send_sse("saved_to_case", {"case_id": case_id, "entities": len(graph.nodes), "relations": len(graph.edges)})
+        except Exception as e:
+            send_sse("error", {"message": str(e)})
+
     def do_POST(self) -> None:
         parsed_url = urlparse(self.path)
         path = parsed_url.path
 
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
+
+        if path == "/api/cases":
+            from hamsa.core.cases import CaseManager
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                title = data.get("title", "New Investigation")
+                desc = data.get("description", "")
+                tags = data.get("tags", ["Active"])
+                cm = CaseManager()
+                case = cm.create_case(title=title, description=desc, tags=tags)
+                self._send_json({"success": True, "case": case.to_dict()})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path.startswith("/api/cases/") and path.endswith("/annotate"):
+            from hamsa.core.cases import CaseManager
+            parts = path.split("/")
+            case_id = parts[3]
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                node_id = data.get("node_id")
+                tag = data.get("tag")
+                color = data.get("color")
+                notes = data.get("notes")
+                cm = CaseManager()
+                ok = cm.annotate_node(case_id, node_id, tag=tag, color=color, notes=notes)
+                self._send_json({"success": ok})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path.startswith("/api/cases/") and path.endswith("/notes"):
+            from hamsa.core.cases import CaseManager
+            parts = path.split("/")
+            case_id = parts[3]
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                notes = data.get("notes", "")
+                cm = CaseManager()
+                case = cm.update_case(case_id, notes=notes)
+                self._send_json({"success": bool(case), "case": case.to_dict() if case else None})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path == "/api/evidence/capture":
+            from hamsa.core.cases import CaseManager
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                case_id = data.get("case_id", "case_default")
+                url = data.get("url", "")
+                title = data.get("title", "Web Capture")
+                notes = data.get("notes", "")
+                cm = CaseManager()
+                ev = cm.add_evidence(case_id=case_id, url=url, title=title, evidence_type="web_snapshot", notes=notes)
+                self._send_json({"success": True, "evidence": ev.to_dict() if ev else None})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
 
         if path == "/api/reset":
             from hamsa.core.cache import GLOBAL_CACHE
@@ -643,6 +820,7 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
                 email = data.get("email")
                 phone = data.get("phone")
                 depth = int(data.get("depth", 2))
+                case_id = data.get("case_id", "case_default")
 
                 targets = []
                 if username:
@@ -664,6 +842,19 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
                 }
 
                 graph = _run_coroutine_sync(GLOBAL_ORCHESTRATOR.scan(targets, context=context, max_depth=depth, recursive=True))
+                
+                # Persist in case
+                from hamsa.core.cases import CaseManager
+                cm = CaseManager()
+                case = cm.get_case(case_id)
+                if not case:
+                    case = cm.create_case(title=f"Investigation: {', '.join([t[0] for t in targets])}", case_id=case_id)
+                case.graph_data = graph.to_dict()
+                for t, typ in targets:
+                    if not any(et.get("value") == t for et in case.targets):
+                        case.targets.append({"value": t, "type": typ.value})
+                cm.save_case(case)
+
                 self._send_json(graph.to_dict())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=500)

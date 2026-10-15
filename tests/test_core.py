@@ -381,6 +381,40 @@ class TestHamsaCore(unittest.TestCase):
         self.assertNotEqual(safe_port, 8080)
         self.assertGreaterEqual(safe_port, 8888)
 
+    def test_case_management_and_annotations(self):
+        from hamsa.core.cases import CaseManager
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cm = CaseManager(base_dir=tmp_dir)
+            cases = cm.list_cases()
+            self.assertGreaterEqual(len(cases), 1)  # Default case exists
+            self.assertEqual(cases[0]["id"], "case_default")
+
+            # Create new case
+            c2 = cm.create_case(title="Project Alpha", description="Alpha description", tags=["Confidential"])
+            self.assertIn("case_project_alpha", c2.id)
+
+            # Update notes
+            updated = cm.update_case(c2.id, notes="Subject last seen active.")
+            self.assertEqual(updated.notes, "Subject last seen active.")
+
+            # Annotate node
+            ok = cm.annotate_node(c2.id, "user:admin", tag="Primary Suspect", color="#ef4444", notes="Key operator")
+            self.assertTrue(ok)
+            fetched = cm.get_case(c2.id)
+            self.assertIn("user:admin", fetched.node_annotations)
+            self.assertEqual(fetched.node_annotations["user:admin"]["tag"], "Primary Suspect")
+
+            # Add evidence
+            ev = cm.add_evidence(c2.id, url="https://target.com/profile", title="Profile Snapshot")
+            self.assertIsNotNone(ev)
+            self.assertEqual(len(cm.get_case(c2.id).evidence), 1)
+
+            # Delete case
+            deleted = cm.delete_case(c2.id)
+            self.assertTrue(deleted)
+            self.assertIsNone(cm.get_case(c2.id))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ Manages plugin registration, task dispatching, concurrency, and recursive cross-
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from hamsa.core.graph import KnowledgeGraph
 from hamsa.core.models import (
     PluginResult,
@@ -89,11 +89,13 @@ class Orchestrator:
         context: Optional[Dict[str, Any]] = None,
         max_depth: int = 2,
         recursive: bool = True,
+        on_event: Optional[Callable[[str, Any], None]] = None,
     ) -> KnowledgeGraph:
         """
         Executes concurrent intelligence gathering across targets.
         If recursive=True and max_depth > 1, automatically launches round 2 scans
         on newly discovered identities, real names, and handles.
+        Streams real-time events via on_event callback if provided.
         """
         context = context or {}
         visited_targets: Set[Tuple[str, TargetType]] = set()
@@ -105,6 +107,8 @@ class Orchestrator:
         while current_targets and current_depth <= max_depth:
             round_label = f"Round {current_depth}" if current_depth > 1 else "Initial Round"
             log_info(f"--- Starting {round_label} ({len(current_targets)} targets in queue) ---")
+            if on_event:
+                on_event("round_started", {"depth": current_depth, "queue_size": len(current_targets), "label": round_label})
 
             tasks = []
             target_parent_map: Dict[Tuple[str, TargetType], Optional[str]] = {}
@@ -137,20 +141,25 @@ class Orchestrator:
                 if res.success:
                     for node in res.nodes:
                         self.graph.add_node(node)
+                        if on_event:
+                            on_event("node_added", node.to_dict())
                     for edge in res.edges:
                         self.graph.add_edge(edge)
+                        if on_event:
+                            on_event("edge_added", edge.to_dict())
 
                     # Link newly spawned target to its discoverer/parent entity
                     parent_id = target_parent_map.get((tgt, t_type))
                     if parent_id:
-                        self.graph.add_edge(
-                            RelationEdge(
-                                source_id=parent_id,
-                                target_id=f"{t_type.value}:{tgt.strip().lower()}",
-                                relation_type=RelationType.DERIVED_FROM,
-                                label="Discovered From Profile",
-                            )
+                        derived_edge = RelationEdge(
+                            source_id=parent_id,
+                            target_id=f"{t_type.value}:{tgt.strip().lower()}",
+                            relation_type=RelationType.DERIVED_FROM,
+                            label="Discovered From Profile",
                         )
+                        self.graph.add_edge(derived_edge)
+                        if on_event:
+                            on_event("edge_added", derived_edge.to_dict())
 
                     # Gather candidates for next round
                     if recursive and res.candidate_targets:
@@ -167,14 +176,15 @@ class Orchestrator:
                         t2, typ2 = initial_targets[j]
                         id1 = f"{typ1.value}:{t1.strip().lower()}"
                         id2 = f"{typ2.value}:{t2.strip().lower()}"
-                        self.graph.add_edge(
-                            RelationEdge(
-                                source_id=id1,
-                                target_id=id2,
-                                relation_type=RelationType.ASSOCIATED_WITH,
-                                label="Co-investigated Target",
-                            )
+                        co_edge = RelationEdge(
+                            source_id=id1,
+                            target_id=id2,
+                            relation_type=RelationType.ASSOCIATED_WITH,
+                            label="Co-investigated Target",
                         )
+                        self.graph.add_edge(co_edge)
+                        if on_event:
+                            on_event("edge_added", co_edge.to_dict())
 
             # Cognitive evaluation & autonomous recursive planning via AgentBrain
             if recursive and current_depth < max_depth and next_candidates:
@@ -187,6 +197,8 @@ class Orchestrator:
                 )
                 for insight in plan.get("graph_insights", []):
                     log_info(f"[AgentBrain] {insight}")
+                    if on_event:
+                        on_event("agent_insight", {"insight": insight})
 
                 if plan["continue_investigation"] and plan["prioritized_targets"]:
                     current_targets = plan["prioritized_targets"]
@@ -201,5 +213,8 @@ class Orchestrator:
                     break
             else:
                 break
+
+        if on_event:
+            on_event("complete", self.graph.to_dict()["summary"])
 
         return self.graph
