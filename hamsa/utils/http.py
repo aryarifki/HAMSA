@@ -61,9 +61,17 @@ class HttpClient:
         req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
 
         handlers = []
-        if self.proxy:
+        active_proxy = self.proxy
+        if not active_proxy:
+            try:
+                from hamsa.core.proxy import GLOBAL_PROXY_MANAGER
+                active_proxy = GLOBAL_PROXY_MANAGER.get_proxy()
+            except Exception:
+                active_proxy = None
+
+        if active_proxy:
             # Handle SOCKS5 / HTTP proxy
-            proxy_url = self.proxy
+            proxy_url = active_proxy
             if proxy_url.startswith("socks5://") or proxy_url.startswith("socks5h://"):
                 try:
                     import socks  # type: ignore
@@ -72,9 +80,9 @@ class HttpClient:
                     socks.set_default_proxy(socks.SOCKS5, parsed.hostname, parsed.port or 9050)
                     socket.socket = socks.socksocket
                 except ImportError:
-                    # Fallback to standard proxy handler
                     pass
             handlers.append(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+
         opener = urllib.request.build_opener(*handlers)
 
         try:
@@ -82,11 +90,23 @@ class HttpClient:
                 status_code = resp.status
                 body = resp.read()
                 resp_headers = dict(resp.headers)
+                if active_proxy and not self.proxy:
+                    try:
+                        from hamsa.core.proxy import GLOBAL_PROXY_MANAGER
+                        GLOBAL_PROXY_MANAGER.record_success(active_proxy)
+                    except Exception:
+                        pass
                 return status_code, body, resp_headers
         except urllib.error.HTTPError as e:
             body = e.read()
             return e.code, body, dict(e.headers)
         except Exception as e:
+            if active_proxy and not self.proxy:
+                try:
+                    from hamsa.core.proxy import GLOBAL_PROXY_MANAGER
+                    GLOBAL_PROXY_MANAGER.record_failure(active_proxy)
+                except Exception:
+                    pass
             raise RuntimeError(f"HTTP request failed for {url}: {e}")
 
     async def request(

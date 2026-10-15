@@ -12,9 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from hamsa.core.database import GLOBAL_DB
 from hamsa.utils.formatters import log_info, log_success
 from hamsa.web.routes import (
+    auth_router,
     cases_router,
     scan_router,
     graph_router,
+    timeline_router,
     surveillance_router,
     system_router,
 )
@@ -54,10 +56,12 @@ def create_app() -> FastAPI:
     # --------------------------------------------------------------------------
     # Register Modular Domain Routers
     # --------------------------------------------------------------------------
+    app.include_router(auth_router)
     app.include_router(system_router)
     app.include_router(cases_router)
     app.include_router(scan_router)
     app.include_router(graph_router)
+    app.include_router(timeline_router)
     app.include_router(surveillance_router)
 
     return app

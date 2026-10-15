@@ -4,6 +4,7 @@ Handles operational health checks, cache operations, community source updates, a
 """
 
 import os
+from typing import Optional
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -75,3 +76,36 @@ async def export_report(
     else:
         content = gen.to_markdown(title=title)
         return JSONResponse({"format": "markdown", "content": content})
+
+
+@router.get("/export")
+async def export_graph_data(
+    format: str = Query("graphml", pattern="^(graphml|stix|csv_nodes|csv_edges|json)$"),
+    case_id: Optional[str] = None
+):
+    """
+    Exports the knowledge network graph into standard enterprise and forensic formats:
+    - GraphML: For Gephi, Cytoscape, yEd, and Maltego
+    - STIX 2.1: OASIS Cyber Threat Intelligence bundle
+    - CSV: Tabular dump of nodes and edges
+    - JSON: Native HAMSA graph dictionary
+    """
+    from fastapi.responses import Response
+    from hamsa.core.export import GraphMLExporter, STIX2Exporter, CSVExporter
+
+    graph = await GLOBAL_DB.load_graph(case_id) if case_id else GLOBAL_ORCHESTRATOR.graph
+
+    if format == "graphml":
+        xml_data = GraphMLExporter.export(graph)
+        return Response(content=xml_data, media_type="application/xml", headers={"Content-Disposition": f"attachment; filename=hamsa_{case_id or 'graph'}.graphml"})
+    elif format == "stix":
+        stix_data = STIX2Exporter.export(graph)
+        return JSONResponse(content=stix_data)
+    elif format == "csv_nodes":
+        csv_data = CSVExporter.export_nodes_csv(graph)
+        return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=hamsa_{case_id or 'graph'}_nodes.csv"})
+    elif format == "csv_edges":
+        csv_data = CSVExporter.export_edges_csv(graph)
+        return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=hamsa_{case_id or 'graph'}_edges.csv"})
+    else:
+        return JSONResponse(content=graph.to_dict())

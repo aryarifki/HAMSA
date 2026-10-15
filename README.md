@@ -216,16 +216,25 @@ cd frontend && npm install && npm run dev
 
 | Method | Endpoint | Deskripsi |
 | :--- | :--- | :--- |
+| `POST` | `/api/auth/login` | Login investigator & mendapatkan token JWT akses (`Bearer`). |
+| `GET` | `/api/auth/me` | Profil investigator dan hak akses/peran (*role*). |
+| `GET` | `/api/auth/audit` | Buku besar audit forensik digital (*Chain of Custody*). |
+| `GET/POST`| `/api/auth/users` | Manajemen akun investigator (khusus peran Admin). |
 | `GET` | `/api/graph` | Mengambil seluruh node dan edge dari knowledge graph aktif (opsional: `?case_id=<id>`). |
+| `POST` | `/api/graph/path` | **Shortest Path Correlation**: Menemukan jalur relasi terpendek antar 2 entitas subjek. |
+| `GET` | `/api/graph/centrality` | **Centrality Scoring**: Menghitung simpul kunci koordinator & *bridge brokerage*. |
+| `GET` | `/api/graph/clusters` | **Cluster Detection**: Mengelompokkan sub-jaringan cincin tersangka yang terisolasi. |
+| `GET` | `/api/timeline` | Mengekstrak rekaman jejak kronologis (EXIF, breach dates, malware timestamps) per kasus. |
 | `POST` | `/api/scan` | Memulai investigasi baru (`username`, `email`, `phone`, `depth`, `all_sites`, dll). |
 | `GET` | `/api/scan/stream` | **Server-Sent Events (SSE)**: Streaming radar pemindaian real-time (`node_added`, `edge_added`). |
+| `GET` | `/api/scan/history` | Riwayat status eksekusi scan background (*persistent scan state*). |
 | `GET` | `/api/cases` | Mengambil daftar seluruh investigasi kasus (*case dossiers*). |
 | `POST` | `/api/cases` | Membuat kasus investigasi baru (`title`, `description`, `tags`). |
 | `GET` | `/api/cases/<id>` | Mengambil detail kasus lengkap beserta grafik dan bukti digital. |
 | `POST` | `/api/cases/<id>/annotate`| Menambahkan marking/tag investigasi pada node tertentu (`Primary Suspect`, `Verified Lead`). |
 | `POST` | `/api/cases/<id>/notes` | Menyimpan catatan forensik investigator untuk berkas perkara. |
 | `POST` | `/api/evidence/capture` | Menyimpan bukti digital (*forensic evidence snapshot*) ke dalam berkas kasus. |
-| `GET` | `/api/timeline` | Mengekstrak rekaman jejak kronologis (EXIF, breach dates, malware timestamps) per kasus. |
+| `GET` | `/api/export` | **Interoperabilitas Global**: Ekspor ke format **GraphML** (Gephi/Maltego), **STIX 2.1**, CSV, atau JSON. |
 | `GET` | `/api/report?format=html` | Mengunduh laporan dossier forensik berformat HTML cetak atau Markdown (`?format=markdown`). |
 | `POST` | `/api/report` | Membuat laporan kustom berdasarkan parameter JSON (`format`, `title`). |
 | `GET` | `/api/watchlist` | Mengambil daftar seluruh target dalam surveillance watchlist. |

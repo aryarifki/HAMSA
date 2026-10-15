@@ -59,6 +59,7 @@ class DatabaseManager:
                     timeout=5.0
                 )
                 await self._migrate_postgres()
+                await self.bootstrap_default_admin()
                 self._connected = True
                 log_success("PostgreSQL connection pool established with Auto-DDL schema verification.")
                 return True
@@ -68,6 +69,7 @@ class DatabaseManager:
 
         # SQLite Fallback Engine
         await self._migrate_sqlite()
+        await self.bootstrap_default_admin()
         self._connected = True
         log_info(f"Using local SQLite database at: {self.sqlite_path}")
         return True
@@ -186,6 +188,37 @@ class DatabaseManager:
 
         def _sync_schema():
             with sqlite3.connect(self.sqlite_path) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id TEXT PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        role TEXT DEFAULT 'investigator',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        action TEXT NOT NULL,
+                        target TEXT,
+                        metadata TEXT DEFAULT '{}',
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scans (
+                        id TEXT PRIMARY KEY,
+                        case_id TEXT NOT NULL,
+                        targets_input TEXT NOT NULL,
+                        depth INTEGER DEFAULT 1,
+                        status TEXT DEFAULT 'completed',
+                        progress_percent INTEGER DEFAULT 100,
+                        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        finished_at DATETIME
+                    );
+                """)
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS cases (
                         id TEXT PRIMARY KEY,
@@ -713,6 +746,265 @@ class DatabaseManager:
         # Sort chronologically descending
         events.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
         return events
+
+    # --------------------------------------------------------------------------
+    # RBAC & USER AUTHENTICATION
+    # --------------------------------------------------------------------------
+
+    async def bootstrap_default_admin(self) -> None:
+        """Bootstraps default administrator account if the users table is empty."""
+        from hamsa.core.auth import PasswordHasher
+        admin_user = os.getenv("HAMSA_ADMIN_USER", "admin")
+        admin_pwd = os.getenv("HAMSA_ADMIN_PASSWORD", "admin_secure_password_2026")
+
+        existing = await self.get_user(admin_user)
+        if not existing:
+            hashed = PasswordHasher.hash_password(admin_pwd)
+            await self.create_user(username=admin_user, password_hash=hashed, role="admin", user_id="usr_admin_default")
+            log_info(f"Default admin account initialized (Username: '{admin_user}')")
+
+    async def get_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """Retrieves user record by username."""
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                r = await conn.fetchrow("SELECT * FROM users WHERE username = $1", username)
+                if not r:
+                    return None
+                return dict(r)
+        else:
+            def _sync_get_user():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    r = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+                    return dict(r) if r else None
+            return await asyncio.to_thread(_sync_get_user)
+
+    async def create_user(
+        self,
+        username: str,
+        password_hash: str,
+        role: str = "investigator",
+        user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Creates a new user account with investigator or admin role."""
+        uid = user_id or f"usr_{int(datetime.now().timestamp())}"
+        now_iso = datetime.now().isoformat()
+
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO users (id, username, password_hash, role)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (username) DO UPDATE
+                    SET password_hash = EXCLUDED.password_hash, role = EXCLUDED.role
+                """, uid, username, password_hash, role)
+        else:
+            def _sync_create_user():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO users (id, username, password_hash, role)
+                        VALUES (?, ?, ?, ?)
+                    """, (uid, username, password_hash, role))
+            await asyncio.to_thread(_sync_create_user)
+
+        return {
+            "id": uid,
+            "username": username,
+            "role": role,
+            "created_at": now_iso
+        }
+
+    async def list_users(self) -> List[Dict[str, Any]]:
+        """Lists all registered users (excluding password hashes)."""
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                rows = await conn.fetch("SELECT id, username, role, created_at FROM users ORDER BY created_at ASC")
+                return [dict(r) for r in rows]
+        else:
+            def _sync_list_users():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY created_at ASC").fetchall()
+                    return [dict(r) for r in rows]
+            return await asyncio.to_thread(_sync_list_users)
+
+    # --------------------------------------------------------------------------
+    # FORENSIC AUDIT TRAIL LOGGING
+    # --------------------------------------------------------------------------
+
+    async def log_audit(
+        self,
+        user_id: Optional[str],
+        action: str,
+        target: str = "",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Records an auditable investigator action into the forensic ledger."""
+        meta = metadata or {}
+        if self.engine_type == "postgres" and self.pg_pool:
+            try:
+                async with self.pg_pool.acquire() as conn:
+                    await conn.execute("""
+                        INSERT INTO audit_logs (user_id, action, target, metadata)
+                        VALUES ($1, $2, $3, $4::jsonb)
+                    """, user_id, action, target, json.dumps(meta))
+            except Exception as e:
+                log_warn(f"Failed to write PostgreSQL audit log: {e}")
+        else:
+            def _sync_log():
+                try:
+                    import sqlite3
+                    with sqlite3.connect(self.sqlite_path) as conn:
+                        conn.execute("""
+                            INSERT INTO audit_logs (user_id, action, target, metadata)
+                            VALUES (?, ?, ?, ?)
+                        """, (user_id, action, target, json.dumps(meta)))
+                except Exception:
+                    pass
+            await asyncio.to_thread(_sync_log)
+
+    async def list_audit_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Fetches the most recent audit trail records."""
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT id, user_id, action, target, metadata, timestamp
+                    FROM audit_logs
+                    ORDER BY timestamp DESC
+                    LIMIT $1
+                """, limit)
+                return [
+                    {
+                        "id": r["id"],
+                        "user_id": r["user_id"],
+                        "action": r["action"],
+                        "target": r["target"],
+                        "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+                        "timestamp": r["timestamp"].isoformat() if hasattr(r["timestamp"], "isoformat") else str(r["timestamp"])
+                    }
+                    for r in rows
+                ]
+        else:
+            def _sync_audit():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute("""
+                        SELECT id, user_id, action, target, metadata, timestamp
+                        FROM audit_logs
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                    """, (limit,)).fetchall()
+                    return [
+                        {
+                            "id": r["id"],
+                            "user_id": r["user_id"],
+                            "action": r["action"],
+                            "target": r["target"],
+                            "metadata": json.loads(r["metadata"] or "{}"),
+                            "timestamp": str(r["timestamp"])
+                        }
+                        for r in rows
+                    ]
+            return await asyncio.to_thread(_sync_audit)
+
+    # --------------------------------------------------------------------------
+    # SCAN JOB QUEUE & STATUS TRACKING
+    # --------------------------------------------------------------------------
+
+    async def create_scan_record(
+        self,
+        case_id: str,
+        targets: List[Any],
+        depth: int = 1,
+        initiated_by: Optional[str] = None
+    ) -> str:
+        """Initializes a new scan state record in the database."""
+        scan_id = f"scan_{int(datetime.now().timestamp())}_{secrets.token_hex(3)}"
+        target_json = json.dumps([{"value": t[0] if isinstance(t, (list, tuple)) else str(t)} for t in targets])
+
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO scans (id, case_id, targets_input, depth, status, started_at)
+                    VALUES ($1, $2, $3::jsonb, $4, 'running', CURRENT_TIMESTAMP)
+                """, scan_id, case_id, target_json, depth)
+        else:
+            def _sync_create_scan():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.execute("""
+                        INSERT INTO scans (id, case_id, targets_input, depth, status, progress_percent, started_at)
+                        VALUES (?, ?, ?, ?, 'running', 10, CURRENT_TIMESTAMP)
+                    """, (scan_id, case_id, target_json, depth))
+            await asyncio.to_thread(_sync_create_scan)
+
+        return scan_id
+
+    async def update_scan_progress(
+        self,
+        scan_id: str,
+        status: str = "completed",
+        progress_percent: int = 100
+    ) -> None:
+        """Updates scan progress and completion status."""
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE scans
+                    SET status = $2, finished_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                """, scan_id, status)
+        else:
+            def _sync_update_scan():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.execute("""
+                        UPDATE scans
+                        SET status = ?, progress_percent = ?, finished_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (status, progress_percent, scan_id))
+            await asyncio.to_thread(_sync_update_scan)
+
+    async def list_scans(self, case_id: str) -> List[Dict[str, Any]]:
+        """Lists scan history records for a case."""
+        if self.engine_type == "postgres" and self.pg_pool:
+            async with self.pg_pool.acquire() as conn:
+                rows = await conn.fetch("SELECT * FROM scans WHERE case_id = $1 ORDER BY started_at DESC", case_id)
+                return [
+                    {
+                        "id": r["id"],
+                        "case_id": r["case_id"],
+                        "targets": json.loads(r["targets_input"]) if isinstance(r["targets_input"], str) else r["targets_input"],
+                        "depth": r["depth"],
+                        "status": r["status"],
+                        "started_at": r["started_at"].isoformat() if hasattr(r["started_at"], "isoformat") else str(r["started_at"]),
+                        "finished_at": r["finished_at"].isoformat() if r["finished_at"] and hasattr(r["finished_at"], "isoformat") else str(r["finished_at"])
+                    }
+                    for r in rows
+                ]
+        else:
+            def _sync_list_scans():
+                import sqlite3
+                with sqlite3.connect(self.sqlite_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute("SELECT * FROM scans WHERE case_id = ? ORDER BY started_at DESC", (case_id,)).fetchall()
+                    return [
+                        {
+                            "id": r["id"],
+                            "case_id": r["case_id"],
+                            "targets": json.loads(r["targets_input"] or "[]"),
+                            "depth": r["depth"],
+                            "status": r["status"],
+                            "started_at": str(r["started_at"]),
+                            "finished_at": str(r["finished_at"]) if r["finished_at"] else None
+                        }
+                        for r in rows
+                    ]
+            return await asyncio.to_thread(_sync_list_scans)
 
 
 # Global singleton instance

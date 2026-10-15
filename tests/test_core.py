@@ -535,6 +535,152 @@ class TestHamsaCore(unittest.TestCase):
             cs_resp = client.get("/api/cache/stats")
             self.assertEqual(cs_resp.status_code, 200)
 
+            # 7. Auth Login test
+            login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin_secure_password_2026"})
+            self.assertEqual(login_resp.status_code, 200)
+            token = login_resp.json()["access_token"]
+            self.assertIsNotNone(token)
+
+            # 8. Auth Me test with Bearer token
+            me_resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+            self.assertEqual(me_resp.status_code, 200)
+            self.assertEqual(me_resp.json()["user"]["username"], "admin")
+
+            # 9. Audit trail endpoint
+            audit_resp = client.get("/api/auth/audit", headers={"Authorization": f"Bearer {token}"})
+            self.assertEqual(audit_resp.status_code, 200)
+            self.assertGreaterEqual(audit_resp.json()["count"], 1)
+
+            # 10. Shortest path endpoint
+            p_resp = client.post("/api/graph/path", json={"source_id": "usr:1", "target_id": "usr:2"})
+            self.assertEqual(p_resp.status_code, 200)
+
+            # 11. Centrality and clusters
+            c_resp = client.get("/api/graph/centrality")
+            self.assertEqual(c_resp.status_code, 200)
+            cl_resp = client.get("/api/graph/clusters")
+            self.assertEqual(cl_resp.status_code, 200)
+
+            # 12. Export endpoints
+            gml_resp = client.get("/api/export?format=graphml")
+            self.assertEqual(gml_resp.status_code, 200)
+            self.assertIn("graphml", gml_resp.text.lower())
+
+            stix_resp = client.get("/api/export?format=stix")
+            self.assertEqual(stix_resp.status_code, 200)
+            self.assertEqual(stix_resp.json()["type"], "bundle")
+
+            # 13. Scan history
+            sh_resp = client.get(f"/api/scan/history?case_id={case_id}")
+            self.assertEqual(sh_resp.status_code, 200)
+
+    def test_password_hasher_and_jwt_tokens(self):
+        from hamsa.core.auth import PasswordHasher, TokenManager
+
+        # Password hashing test
+        pwd = "SecretPassword123!"
+        hashed = PasswordHasher.hash_password(pwd)
+        self.assertTrue(hashed.startswith("pbkdf2:sha256:"))
+        self.assertTrue(PasswordHasher.verify_password(pwd, hashed))
+        self.assertFalse(PasswordHasher.verify_password("WrongPassword", hashed))
+
+        # JWT Token test
+        tm = TokenManager(secret_key="custom_test_secret_key")
+        token = tm.create_access_token(user_id="usr_001", username="agent_smith", role="admin")
+        self.assertEqual(len(token.split(".")), 3)
+
+        payload = tm.verify_token(token)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["sub"], "usr_001")
+        self.assertEqual(payload["username"], "agent_smith")
+        self.assertEqual(payload["role"], "admin")
+
+        # Invalid token signature
+        tampered = token[:-5] + "XXXXX"
+        self.assertIsNone(tm.verify_token(tampered))
+
+    def test_graph_analytics_shortest_path_and_centrality(self):
+        from hamsa.core.analytics import GraphAnalyticsEngine
+        from hamsa.core.graph import KnowledgeGraph
+        from hamsa.core.models import EntityNode, RelationEdge, TargetType, RelationType
+
+        kg = KnowledgeGraph()
+        n1 = EntityNode(id="email:suspect@target.com", type=TargetType.EMAIL, value="suspect@target.com", label="Suspect")
+        n2 = EntityNode(id="phone:+62811111111", type=TargetType.PHONE, value="+62811111111", label="Burner Phone")
+        n3 = EntityNode(id="user:cavalier99", type=TargetType.USERNAME, value="cavalier99", label="Forum Handle")
+        kg.add_node(n1)
+        kg.add_node(n2)
+        kg.add_node(n3)
+
+        e1 = RelationEdge(source_id=n1.id, target_id=n2.id, relation_type=RelationType.ASSOCIATED_WITH, label="Linked in CV")
+        e2 = RelationEdge(source_id=n2.id, target_id=n3.id, relation_type=RelationType.REGISTERED_ON, label="SMS Recovery")
+        kg.add_edge(e1)
+        kg.add_edge(e2)
+
+        # 1. Shortest path finding
+        res = GraphAnalyticsEngine.find_shortest_path(kg, n1.id, n3.id)
+        self.assertTrue(res["found"])
+        self.assertEqual(res["hops"], 2)
+        self.assertEqual(res["node_ids"], [n1.id, n2.id, n3.id])
+        self.assertIn("Burner Phone", res["narrative"])
+
+        # 2. Centrality scoring
+        cent = GraphAnalyticsEngine.compute_centrality(kg)
+        self.assertEqual(cent["total_entities"], 3)
+        self.assertEqual(cent["top_actors"][0]["node_id"], n2.id)  # n2 has degree 2
+        self.assertGreaterEqual(len(cent["key_bridges"]), 1)
+
+        # 3. Cluster detection
+        clusters = GraphAnalyticsEngine.detect_clusters(kg)
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]["size"], 3)
+
+    def test_global_exporters_graphml_stix_csv(self):
+        from hamsa.core.export import GraphMLExporter, STIX2Exporter, CSVExporter
+        from hamsa.core.graph import KnowledgeGraph
+        from hamsa.core.models import EntityNode, RelationEdge, TargetType, RelationType
+
+        kg = KnowledgeGraph()
+        kg.add_node(EntityNode(id="email:victim@bank.com", type=TargetType.EMAIL, value="victim@bank.com", label="Victim"))
+        kg.add_node(EntityNode(id="user:hacker1", type=TargetType.USERNAME, value="hacker1", label="Threat Actor"))
+        kg.add_edge(RelationEdge(source_id="email:victim@bank.com", target_id="user:hacker1", relation_type=RelationType.EXPOSED_IN))
+
+        # GraphML
+        graphml = GraphMLExporter.export(kg)
+        self.assertIn("<graphml", graphml)
+        self.assertIn("victim@bank.com", graphml)
+
+        # STIX 2.1
+        stix_bundle = STIX2Exporter.export(kg)
+        self.assertEqual(stix_bundle["type"], "bundle")
+        self.assertGreaterEqual(len(stix_bundle["objects"]), 3)
+
+        # CSV
+        nodes_csv = CSVExporter.export_nodes_csv(kg)
+        edges_csv = CSVExporter.export_edges_csv(kg)
+        self.assertIn("victim@bank.com", nodes_csv)
+        self.assertIn("EXPOSED_IN", edges_csv)
+
+    def test_proxy_manager_rotation_and_quarantine(self):
+        from hamsa.core.proxy import ProxyManager
+
+        pm = ProxyManager(quarantine_duration=1.0)
+        pm.add_proxies(["http://127.0.0.1:9050", "http://127.0.0.1:9051", "http://127.0.0.1:9052"])
+        self.assertEqual(pm.status()["total_proxies"], 3)
+
+        # Round-robin selection
+        p1 = pm.get_proxy("round_robin")
+        p2 = pm.get_proxy("round_robin")
+        self.assertNotEqual(p1, p2)
+
+        # Quarantine failure
+        pm.record_failure(p1)
+        self.assertEqual(pm.status()["quarantined"], 1)
+
+        # Success clears quarantine
+        pm.record_success(p1)
+        self.assertEqual(pm.status()["quarantined"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
