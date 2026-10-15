@@ -486,6 +486,9 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
             self._send_json(GLOBAL_ORCHESTRATOR.graph.to_dict())
         elif path == "/api/plugins":
             self._send_json({"plugins": GLOBAL_ORCHESTRATOR.list_plugins()})
+        elif path == "/api/cache/stats":
+            from hamsa.core.cache import GLOBAL_CACHE
+            self._send_json(GLOBAL_CACHE.stats())
         else:
             self.send_error(404, "Endpoint Not Found")
 
@@ -497,8 +500,16 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length)
 
         if path == "/api/reset":
+            from hamsa.core.cache import GLOBAL_CACHE
             GLOBAL_ORCHESTRATOR.graph.clear()
-            self._send_json({"success": True, "message": "Graph reset successfully"})
+            GLOBAL_CACHE.clear()
+            self._send_json({"success": True, "message": "Graph and cache reset successfully"})
+            return
+
+        if path == "/api/cache/clear":
+            from hamsa.core.cache import GLOBAL_CACHE
+            GLOBAL_CACHE.clear()
+            self._send_json({"success": True, "message": "Two-tier cache purged"})
             return
 
         if path == "/api/update-sources":
@@ -527,7 +538,14 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
                     self._send_json({"error": "No targets provided"}, status=400)
                     return
 
-                graph = _run_coroutine_sync(GLOBAL_ORCHESTRATOR.scan(targets, max_depth=depth, recursive=True))
+                context = {
+                    "all_sites": data.get("all_sites", False),
+                    "getcontact_token": data.get("getcontact_token"),
+                    "truecaller_token": data.get("truecaller_token"),
+                    "proxy": data.get("proxy"),
+                }
+
+                graph = _run_coroutine_sync(GLOBAL_ORCHESTRATOR.scan(targets, context=context, max_depth=depth, recursive=True))
                 self._send_json(graph.to_dict())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=500)

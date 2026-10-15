@@ -225,6 +225,33 @@ class TestHamsaCore(unittest.TestCase):
         self.assertEqual(len(graph.nodes), 0)
         self.assertEqual(len(graph.edges), 0)
 
+    def test_two_tier_ttl_cache(self):
+        from hamsa.core.cache import TTLCache, cached
+
+        cache = TTLCache(maxsize=3, ttl_seconds=1.0, enable_redis=False)
+        cache.set("key1", "val1")
+        cache.set("key2", "val2")
+        self.assertEqual(cache.get("key1"), "val1")
+        self.assertEqual(cache.get("key2"), "val2")
+        self.assertIsNone(cache.get("key_missing"))
+
+        # Test LRU eviction when maxsize is exceeded
+        cache.set("key3", "val3")
+        cache.set("key4", "val4")  # Should evict key1 (or oldest)
+        self.assertIsNone(cache.get("key1"))
+        self.assertEqual(cache.get("key4"), "val4")
+
+        # Test stats
+        st = cache.stats()
+        self.assertEqual(st["l1_memory_size"], 3)
+        self.assertEqual(st["l1_maxsize"], 3)
+
+        # Test delete & clear
+        cache.delete("key4")
+        self.assertIsNone(cache.get("key4"))
+        cache.clear()
+        self.assertEqual(cache.stats()["l1_memory_size"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
