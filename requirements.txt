@@ -1,0 +1,16 @@
+# Hamsa OSINT Framework Dependencies
+#
+# Core Hamsa runs on Python 3.10+ Standard Library with ZERO required external dependencies.
+# The following optional dependencies unlock high-performance and advanced visualization features:
+
+# Optional: Ultra-fast asynchronous HTTP engine
+# aiohttp>=3.9.0
+
+# Optional: Deep EXIF parsing for TIFF/RAW/PNG images
+# Pillow>=10.0.0
+
+# Optional: Network analysis & graph theory algorithms
+# networkx>=3.0
+
+# Optional: Interactive leaflet geospatial maps
+# folium>=0.15.0
