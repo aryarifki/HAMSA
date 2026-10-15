@@ -103,6 +103,14 @@ Pemisahan ruang kerja investigasi (*case isolation*) setara Maltego / Lampyre:
 - **Interactive Search Dimming**: Pencarian entitas dinamis meredupkan node non-relevan (opacity 15%) dan menerangi node target.
 - **Chronoforensic Timeline**: Halaman khusus `/timeline` yang mengekstrak dan mengurutkan seluruh metadata waktu (EXIF capture, breach years, infeksi malware) dengan filter kategori dan tautan kembali ke graf.
 
+### 11. Spatial Filtering & Geofencing Intelligence Engine
+Engine penyaringan spasial dan analisis geofencing berbasis komputasi geometri murni pustaka standar Python:
+- **Haversine Circular Radius Filter**: Menghitung jarak lingkaran besar (*Great-Circle Distance*) $R = 6371.0088\text{ km}$ untuk menemukan entitas foto/lokasi dalam radius tertentu (misal: $\le 5\text{ km}$ dari TKP / target).
+- **Axis-Aligned Bounding Box (AABB)**: Menyaring koordinat GPS dalam kotak pembatas geografis (`min_lat`, `max_lat`, `min_lon`, `max_lon`) dengan dukungan pelintasan meridian ke-180 (*Antimeridian*).
+- **Ray-Casting Point-in-Polygon (PIP)**: Menguji apakah koordinat GPS berada di dalam area poligon bebas/kompleks (*arbitrary geofence polygon*) menggunakan teorema kurva Jordan (*Jordan Curve Theorem*) tanpa dependensi berat C-extension (seperti GDAL atau Shapely).
+- **Automated GPS Extraction**: Mendeteksi koordinat lintang/bujur otomatis dari metadata EXIF kamera JPEG/TIFF, IP Geolocation, dan node tipe `TargetType.LOCATION`.
+
+
 ---
 
 ## 🚀 Panduan Penggunaan CLI
@@ -224,6 +232,7 @@ cd frontend && npm install && npm run dev
 | `POST` | `/api/graph/path` | **Shortest Path Correlation**: Menemukan jalur relasi terpendek antar 2 entitas subjek. |
 | `GET` | `/api/graph/centrality` | **Centrality Scoring**: Menghitung simpul kunci koordinator & *bridge brokerage*. |
 | `GET` | `/api/graph/clusters` | **Cluster Detection**: Mengelompokkan sub-jaringan cincin tersangka yang terisolasi. |
+| `POST` | `/api/graph/spatial-filter` | **Spatial Geofencing Filter**: Memfilter koordinat GPS (EXIF/Location) dengan radius Haversine, Bounding Box (AABB), atau Poligon Ray-Casting. |
 | `GET` | `/api/timeline` | Mengekstrak rekaman jejak kronologis (EXIF, breach dates, malware timestamps) per kasus. |
 | `POST` | `/api/scan` | Memulai investigasi baru (`username`, `email`, `phone`, `depth`, `all_sites`, dll). |
 | `GET` | `/api/scan/stream` | **Server-Sent Events (SSE)**: Streaming radar pemindaian real-time (`node_added`, `edge_added`). |

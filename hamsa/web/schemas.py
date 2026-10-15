@@ -45,3 +45,17 @@ class WatchlistRequest(BaseModel):
     target: str
     target_type: str = "username"
     webhook: Optional[str] = None
+
+
+class SpatialFilterRequest(BaseModel):
+    case_id: Optional[str] = None
+    filter_type: str = Field(default="radius", description="'radius', 'bbox', or 'polygon'")
+    center_lat: Optional[float] = None
+    center_lon: Optional[float] = None
+    radius_km: Optional[float] = None
+    min_lat: Optional[float] = None
+    max_lat: Optional[float] = None
+    min_lon: Optional[float] = None
+    max_lon: Optional[float] = None
+    polygon: Optional[List[List[float]]] = None
+

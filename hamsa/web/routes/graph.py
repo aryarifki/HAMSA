@@ -9,8 +9,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from hamsa.core.database import GLOBAL_DB
-from hamsa.core.analytics import GraphAnalyticsEngine
+from hamsa.core.analytics import GraphAnalyticsEngine, SpatialFilterEngine
 from hamsa.web.deps import GLOBAL_ORCHESTRATOR
+from hamsa.web.schemas import SpatialFilterRequest
 
 router = APIRouter(prefix="/api/graph", tags=["Knowledge Graph Analytics"])
 
@@ -64,6 +65,41 @@ async def get_graph_clusters(case_id: Optional[str] = None):
 
     clusters = GraphAnalyticsEngine.detect_clusters(graph)
     return {"clusters": clusters, "total_clusters": len(clusters)}
+
+
+@router.post("/spatial-filter")
+async def apply_spatial_filter(payload: SpatialFilterRequest):
+    """
+    Filters EXIF photo locations and geographic nodes using spatial computational geometry
+    (Haversine Circular Radius, Bounding Box, or Ray-Casting Polygon Geofence).
+    """
+    if payload.case_id:
+        graph = await GLOBAL_DB.load_graph(payload.case_id)
+    else:
+        graph = GLOBAL_ORCHESTRATOR.graph
+
+    try:
+        poly_tuples = None
+        if payload.polygon:
+            poly_tuples = [(float(p[0]), float(p[1])) for p in payload.polygon]
+
+        result = SpatialFilterEngine.filter_graph_locations(
+            graph=graph,
+            filter_type=payload.filter_type,
+            center_lat=payload.center_lat,
+            center_lon=payload.center_lon,
+            radius_km=payload.radius_km,
+            min_lat=payload.min_lat,
+            max_lat=payload.max_lat,
+            min_lon=payload.min_lon,
+            max_lon=payload.max_lon,
+            polygon=poly_tuples,
+        )
+        return result
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Spatial filter computation error: {exc}")
 
 
 # Retain alias for timeline at /api/timeline

@@ -681,6 +681,181 @@ class TestHamsaCore(unittest.TestCase):
         pm.record_success(p1)
         self.assertEqual(pm.status()["quarantined"], 0)
 
+    def test_spatial_filter_engine(self):
+        from hamsa.core.analytics import SpatialFilterEngine
+        from hamsa.core.graph import KnowledgeGraph
+        from hamsa.core.models import EntityNode, TargetType
+
+        # 1. Haversine distance
+        dist_zero = SpatialFilterEngine.haversine_distance_km(0.0, 0.0, 0.0, 0.0)
+        self.assertEqual(dist_zero, 0.0)
+
+        # Monas to Bundaran HI (~2.2 km)
+        monas_lat, monas_lon = -6.1754, 106.8272
+        bhi_lat, bhi_lon = -6.1950, 106.8230
+        dist_jkt = SpatialFilterEngine.haversine_distance_km(monas_lat, monas_lon, bhi_lat, bhi_lon)
+        self.assertGreater(dist_jkt, 2.0)
+        self.assertLess(dist_jkt, 2.5)
+
+        # London to Paris (~343 km)
+        london_lat, london_lon = 51.5074, -0.1278
+        paris_lat, paris_lon = 48.8566, 2.3522
+        dist_eur = SpatialFilterEngine.haversine_distance_km(london_lat, london_lon, paris_lat, paris_lon)
+        self.assertGreater(dist_eur, 340.0)
+        self.assertLess(dist_eur, 346.0)
+
+        # 2. Radius test
+        in_radius, d1 = SpatialFilterEngine.is_within_radius(bhi_lat, bhi_lon, monas_lat, monas_lon, radius_km=3.0)
+        self.assertTrue(in_radius)
+        self.assertLess(d1, 3.0)
+
+        out_radius, d2 = SpatialFilterEngine.is_within_radius(bhi_lat, bhi_lon, monas_lat, monas_lon, radius_km=1.0)
+        self.assertFalse(out_radius)
+
+        # 3. Bounding box test
+        jkt_bbox = (-6.38, -6.08, 106.68, 106.98)
+        self.assertTrue(SpatialFilterEngine.is_within_bounding_box(monas_lat, monas_lon, *jkt_bbox))
+        # Bandung is outside Jakarta bbox
+        self.assertFalse(SpatialFilterEngine.is_within_bounding_box(-6.9175, 107.6191, *jkt_bbox))
+
+        # Antimeridian crossing bounding box
+        anti_bbox = (-10.0, 10.0, 170.0, -170.0)
+        self.assertTrue(SpatialFilterEngine.is_within_bounding_box(0.0, 175.0, *anti_bbox))
+        self.assertTrue(SpatialFilterEngine.is_within_bounding_box(0.0, -175.0, *anti_bbox))
+        self.assertFalse(SpatialFilterEngine.is_within_bounding_box(0.0, 0.0, *anti_bbox))
+
+        # 4. Point in Polygon (PIP) ray casting test
+        polygon_jkt = [
+            (-6.15, 106.80),
+            (-6.15, 106.85),
+            (-6.22, 106.85),
+            (-6.22, 106.80),
+        ]
+        self.assertTrue(SpatialFilterEngine.is_point_in_polygon(monas_lat, monas_lon, polygon_jkt))
+        self.assertFalse(SpatialFilterEngine.is_point_in_polygon(-6.9175, 107.6191, polygon_jkt))
+        self.assertFalse(SpatialFilterEngine.is_point_in_polygon(monas_lat, monas_lon, [(-6.15, 106.80)]))
+
+        # 5. Coordinate extraction from EntityNode
+        node_attr = EntityNode(
+            id="image:target.jpg",
+            type=TargetType.IMAGE,
+            value="/tmp/target.jpg",
+            label="Photo",
+            attributes={"latitude": monas_lat, "longitude": monas_lon},
+        )
+        coords1 = SpatialFilterEngine.extract_node_coordinates(node_attr)
+        self.assertEqual(coords1, (monas_lat, monas_lon))
+
+        node_val = EntityNode(
+            id="loc:bhi",
+            type=TargetType.LOCATION,
+            value=f"{bhi_lat}, {bhi_lon}",
+            label="Bundaran HI",
+        )
+        coords2 = SpatialFilterEngine.extract_node_coordinates(node_val)
+        self.assertEqual(coords2, (bhi_lat, bhi_lon))
+
+        # 6. Graph location filtering
+        kg = KnowledgeGraph()
+        node_bandung = EntityNode(
+            id="loc:bandung",
+            type=TargetType.LOCATION,
+            value="-6.9175, 107.6191",
+            label="Bandung Central",
+            attributes={"latitude": -6.9175, "longitude": 107.6191},
+        )
+        kg.add_node(node_attr)
+        kg.add_node(node_val)
+        kg.add_node(node_bandung)
+
+        # Filter within 5km of Monas (should match Monas and Bundaran HI, exclude Bandung)
+        res_radius = SpatialFilterEngine.filter_graph_locations(
+            graph=kg,
+            filter_type="radius",
+            center_lat=monas_lat,
+            center_lon=monas_lon,
+            radius_km=5.0,
+        )
+        self.assertEqual(res_radius["matched_count"], 2)
+        matched_ids = [m["node_id"] for m in res_radius["matches"]]
+        self.assertIn("image:target.jpg", matched_ids)
+        self.assertIn("loc:bhi", matched_ids)
+        self.assertNotIn("loc:bandung", matched_ids)
+        # Matches should be ordered by distance
+        self.assertLessEqual(res_radius["matches"][0]["distance_km"], res_radius["matches"][1]["distance_km"])
+
+        # Filter with polygon
+        res_poly = SpatialFilterEngine.filter_graph_locations(
+            graph=kg,
+            filter_type="polygon",
+            polygon=polygon_jkt,
+        )
+        self.assertEqual(res_poly["matched_count"], 2)
+
+    def test_spatial_filter_api_endpoint(self):
+        try:
+            from fastapi.testclient import TestClient
+            from hamsa.web.enterprise_app import app
+            from hamsa.web.deps import GLOBAL_ORCHESTRATOR
+            from hamsa.core.models import EntityNode, TargetType
+        except ImportError:
+            raise unittest.SkipTest("FastAPI or TestClient not installed; skipping ASGI endpoint tests.")
+
+        # Seed global orchestrator graph with test location
+        GLOBAL_ORCHESTRATOR.graph.add_node(EntityNode(
+            id="test:loc:monas",
+            type=TargetType.LOCATION,
+            value="-6.1754, 106.8272",
+            label="National Monument",
+            attributes={"latitude": -6.1754, "longitude": 106.8272},
+        ))
+
+        with TestClient(app) as client:
+            # 1. Valid radius filter query
+            resp = client.post(
+                "/api/graph/spatial-filter",
+                json={
+                    "filter_type": "radius",
+                    "center_lat": -6.1754,
+                    "center_lon": 106.8272,
+                    "radius_km": 10.0,
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["filter_type"], "radius")
+            self.assertGreaterEqual(data["matched_count"], 1)
+            self.assertTrue(any(m["node_id"] == "test:loc:monas" for m in data["matches"]))
+
+            # 2. Polygon geofence filter query
+            poly_resp = client.post(
+                "/api/graph/spatial-filter",
+                json={
+                    "filter_type": "polygon",
+                    "polygon": [
+                        [-6.15, 106.80],
+                        [-6.15, 106.85],
+                        [-6.22, 106.85],
+                        [-6.22, 106.80],
+                    ],
+                },
+            )
+            self.assertEqual(poly_resp.status_code, 200)
+            poly_data = poly_resp.json()
+            self.assertGreaterEqual(poly_data["matched_count"], 1)
+
+            # 3. Invalid filter parameters return 400
+            err_resp = client.post(
+                "/api/graph/spatial-filter",
+                json={
+                    "filter_type": "radius",
+                    "center_lat": -6.1754,
+                    # missing center_lon & radius_km
+                },
+            )
+            self.assertEqual(err_resp.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
+
