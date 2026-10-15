@@ -75,6 +75,15 @@ export default function TargetDossierPage() {
           </div>
 
           <div className="flex items-center gap-2 self-stretch sm:self-auto">
+            <a
+              href={`/api/report?format=html&title=Forensic%20Report:%20${encodeURIComponent(targetId)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] font-bold text-xs shadow-sm hover:bg-[var(--md-sys-color-surface-container-high)] transition-all cursor-pointer"
+            >
+              <Icon icon="ph:file-html-bold" width="15" className="text-[var(--md-sys-color-primary)]" />
+              <span>Export Dossier</span>
+            </a>
             <Link
               href="/graph"
               className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-bold text-xs shadow-md hover:opacity-90 transition-all cursor-pointer"

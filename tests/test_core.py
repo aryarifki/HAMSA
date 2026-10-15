@@ -252,6 +252,135 @@ class TestHamsaCore(unittest.TestCase):
         cache.clear()
         self.assertEqual(cache.stats()["l1_memory_size"], 0)
 
+    def test_reporting_engine(self):
+        from hamsa.core.reporting import ReportGenerator
+
+        graph = KnowledgeGraph()
+        email_node = EntityNode(
+            id="email:victim@target.com",
+            type=TargetType.EMAIL,
+            value="victim@target.com",
+            label="victim@target.com",
+            confidence=1.0,
+            attributes={"domain": "target.com"},
+        )
+        breach_node = EntityNode(
+            id="breach:linkedin",
+            type=TargetType.BREACH,
+            value="LinkedIn",
+            label="LinkedIn 2012 Leak",
+            confidence=0.9,
+            attributes={"breached_date": "2012-05-05", "compromised_accounts": 164000000},
+        )
+        graph.add_node(email_node)
+        graph.add_node(breach_node)
+        graph.add_edge(RelationEdge(source_id=email_node.id, target_id=breach_node.id, relation_type=RelationType.EXPOSED_IN))
+
+        reporter = ReportGenerator(graph)
+        summary = reporter.generate_executive_summary([("victim@target.com", TargetType.EMAIL)])
+        self.assertIn("victim@target.com", summary)
+        self.assertIn("High Risk Exposure", summary)
+
+        timeline = reporter.generate_timeline()
+        self.assertEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]["event"], "Data Breach: LinkedIn 2012 Leak")
+
+        md = reporter.generate_markdown([("victim@target.com", TargetType.EMAIL)], title="Dossier Test")
+        self.assertIn("Dossier Test", md)
+        self.assertIn("LinkedIn 2012 Leak", md)
+
+        html = reporter.generate_html([("victim@target.com", TargetType.EMAIL)], title="HTML Dossier")
+        self.assertIn("<!DOCTYPE html>", html)
+        self.assertIn("HTML Dossier", html)
+
+    def test_graph_backend_abstraction(self):
+        from hamsa.core.graph_backend import MemoryGraphBackend, Neo4jGraphBackend, create_graph_backend
+
+        mem = create_graph_backend("memory")
+        self.assertIsInstance(mem, MemoryGraphBackend)
+
+        n1 = EntityNode(id="n1", type=TargetType.USERNAME, value="user1", label="User 1", attributes={"ip": "1.2.3.4"})
+        n2 = EntityNode(id="n2", type=TargetType.USERNAME, value="user2", label="User 2", attributes={"ip": "1.2.3.4"})
+        mem.add_node(n1)
+        mem.add_node(n2)
+        mem.add_edge(RelationEdge(source_id="n1", target_id="n2", relation_type=RelationType.ASSOCIATED_WITH))
+
+        self.assertEqual(len(mem.get_nodes()), 2)
+        self.assertEqual(len(mem.get_edges()), 1)
+
+        # Test shared attributes detection (shared IP)
+        shared = mem.find_shared_attributes("ip")
+        self.assertIn("1.2.3.4", shared)
+        self.assertEqual(len(shared["1.2.3.4"]), 2)
+
+        mem.clear()
+        self.assertEqual(len(mem.get_nodes()), 0)
+
+        # Test Neo4j graceful degradation when offline
+        neo = Neo4jGraphBackend(uri="bolt://127.0.0.1:19999")
+        self.assertFalse(neo.is_connected())
+        neo.add_node(n1)
+        self.assertEqual(len(neo.get_nodes()), 1)
+
+    def test_continuous_monitoring_and_diff(self):
+        from hamsa.core.monitor import ScanDiffEngine, WatchlistManager
+
+        old_snap = {
+            "nodes": [
+                {"id": "user:bob", "type": "username", "label": "bob", "attributes": {"platform": "github"}}
+            ],
+            "edges": []
+        }
+        new_snap = {
+            "nodes": [
+                {"id": "user:bob", "type": "username", "label": "bob", "attributes": {"platform": "github", "bio": "developer"}},
+                {"id": "breach:adobe", "type": "breach", "label": "Adobe Breach", "attributes": {"date": "2013"}}
+            ],
+            "edges": [
+                {"source": "user:bob", "target": "breach:adobe", "type": "exposed_in"}
+            ]
+        }
+
+        diff = ScanDiffEngine.compute_diff(old_snap, new_snap)
+        self.assertTrue(diff["has_drift"])
+        self.assertEqual(diff["total_added_nodes"], 1)
+        self.assertEqual(diff["total_modified_nodes"], 1)
+        self.assertEqual(diff["total_new_edges"], 1)
+        self.assertEqual(len(diff["new_breaches"]), 1)
+        self.assertGreaterEqual(diff["drift_score"], 30)
+
+        alert_md = ScanDiffEngine.format_alert_markdown("bob", diff)
+        self.assertIn("HAMSA PROACTIVE INTELLIGENCE ALERT", alert_md)
+        self.assertIn("Adobe Breach", alert_md)
+
+        # Test WatchlistManager
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            w_file = f.name
+        try:
+            wm = WatchlistManager(filepath=w_file)
+            entry = wm.add("target_alice", target_type="username")
+            self.assertEqual(len(wm.list_all()), 1)
+            self.assertEqual(entry.value, "target_alice")
+
+            wm.update_scanned("target_alice", "username")
+            self.assertIsNotNone(wm.list_all()[0].last_scanned)
+
+            removed = wm.remove("target_alice", "username")
+            self.assertTrue(removed)
+            self.assertEqual(len(wm.list_all()), 0)
+        finally:
+            if os.path.exists(w_file):
+                os.remove(w_file)
+
+    def test_port_8080_protection(self):
+        from hamsa.web.server import find_safe_port, is_port_available
+
+        # Verifies port 8080 is strictly disallowed
+        self.assertFalse(is_port_available("127.0.0.1", 8080))
+        safe_port = find_safe_port("127.0.0.1", start_port=8080)
+        self.assertNotEqual(safe_port, 8080)
+        self.assertGreaterEqual(safe_port, 8888)
+
 
 if __name__ == "__main__":
     unittest.main()

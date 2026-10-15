@@ -6,37 +6,42 @@ Maintains nodes and relations with automatic deduplication, cross-linking, and s
 import json
 import os
 from typing import Any, Dict, List, Optional
+
+from hamsa.core.graph_backend import BaseGraphBackend, create_graph_backend
 from hamsa.core.models import EntityNode, RelationEdge, RelationType, TargetType
 
 
 class KnowledgeGraph:
-    """In-memory intelligence graph that links entities across multiple OSINT modules."""
+    """Intelligence graph that links entities across multiple OSINT modules with pluggable persistence."""
 
-    def __init__(self) -> None:
-        self.nodes: Dict[str, EntityNode] = {}
-        self.edges: List[RelationEdge] = []
-        self._edge_keys: set = set()
+    def __init__(self, backend: Optional[BaseGraphBackend] = None) -> None:
+        self.backend: BaseGraphBackend = backend or create_graph_backend()
+
+    @property
+    def nodes(self) -> Dict[str, EntityNode]:
+        return self.backend.get_nodes()
+
+    @property
+    def edges(self) -> List[RelationEdge]:
+        return self.backend.get_edges()
 
     def add_node(self, node: EntityNode) -> None:
-        if node.id in self.nodes:
-            existing = self.nodes[node.id]
-            # Merge attributes
-            existing.attributes.update(node.attributes)
-            existing.confidence = max(existing.confidence, node.confidence)
-        else:
-            self.nodes[node.id] = node
+        self.backend.add_node(node)
 
     def add_edge(self, edge: RelationEdge) -> None:
-        key = (edge.source_id, edge.target_id, edge.relation_type)
-        if key not in self._edge_keys:
-            self._edge_keys.add(key)
-            self.edges.append(edge)
+        self.backend.add_edge(edge)
 
     def clear(self) -> None:
-        """Clears all nodes and edges in the graph."""
-        self.nodes.clear()
-        self.edges.clear()
-        self._edge_keys.clear()
+        """Clears all nodes and edges in the graph backend."""
+        self.backend.clear()
+
+    def execute_cypher(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Executes Cypher graph pattern matching (delegated to backend)."""
+        return self.backend.execute_cypher(query, params)
+
+    def find_shared_attributes(self, attribute_name: str) -> Dict[str, List[str]]:
+        """Finds values of an attribute shared by two or more entities."""
+        return self.backend.find_shared_attributes(attribute_name)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -476,9 +476,19 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _send_text(self, text: str, content_type: str = "text/plain; charset=utf-8", status: int = 200) -> None:
+        payload = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_GET(self) -> None:
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        query = parse_qs(parsed_url.query)
 
         if path in ("/", "/dashboard", "/index.html"):
             self._send_html(DASHBOARD_HTML)
@@ -489,6 +499,26 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
         elif path == "/api/cache/stats":
             from hamsa.core.cache import GLOBAL_CACHE
             self._send_json(GLOBAL_CACHE.stats())
+        elif path == "/api/watchlist":
+            from hamsa.core.monitor import WatchlistManager
+            wm = WatchlistManager()
+            self._send_json({"watchlist": [t.to_dict() for t in wm.list_all()]})
+        elif path == "/api/report":
+            from hamsa.core.reporting import ReportGenerator
+            reporter = ReportGenerator(GLOBAL_ORCHESTRATOR.graph)
+            fmt = query.get("format", ["html"])[0].lower()
+            title = query.get("title", ["HAMSA OSINT Intelligence Dossier"])[0]
+            # Identify roots from graph nodes
+            targets = [(n.value, n.type) for n in GLOBAL_ORCHESTRATOR.graph.nodes.values() if n.confidence >= 0.95][:3]
+            if not targets:
+                targets = [("Target Subject", TargetType.USERNAME)]
+
+            if fmt in ("md", "markdown"):
+                content = reporter.generate_markdown(targets, title)
+                self._send_text(content, content_type="text/markdown; charset=utf-8")
+            else:
+                content = reporter.generate_html(targets, title)
+                self._send_html(content)
         else:
             self.send_error(404, "Endpoint Not Found")
 
@@ -516,6 +546,94 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
             sm = SourceManager()
             total = sm.update_sources()
             self._send_json({"success": True, "total_sites": total})
+            return
+
+        if path == "/api/watchlist":
+            from hamsa.core.monitor import WatchlistManager
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                action = data.get("action", "add")
+                val = data.get("value", "").strip()
+                t_type = data.get("target_type", "username")
+
+                wm = WatchlistManager()
+                if action == "remove":
+                    removed = wm.remove(val, target_type=t_type)
+                    self._send_json({"success": removed, "watchlist": [t.to_dict() for t in wm.list_all()]})
+                else:
+                    entry = wm.add(val, target_type=t_type, tags=data.get("tags", []), notes=data.get("notes", ""))
+                    self._send_json({"success": True, "entry": entry.to_dict(), "watchlist": [t.to_dict() for t in wm.list_all()]})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path == "/api/watchlist/check":
+            from hamsa.core.monitor import ScanDiffEngine, WatchlistManager
+            try:
+                wm = WatchlistManager()
+                items = wm.list_all()
+                results = []
+                snapshot_dir = os.path.expanduser("~/.hamsa/snapshots")
+                os.makedirs(snapshot_dir, exist_ok=True)
+
+                for item in items:
+                    t_type = TargetType.USERNAME
+                    if item.target_type == "email":
+                        t_type = TargetType.EMAIL
+                    elif item.target_type == "phone":
+                        t_type = TargetType.PHONE
+
+                    tg = _run_coroutine_sync(GLOBAL_ORCHESTRATOR.scan([(item.value, t_type)], max_depth=2, recursive=True))
+                    new_snap = tg.to_dict()
+                    snap_file = os.path.join(snapshot_dir, f"{item.target_type}_{item.value.replace('/', '_')}.json")
+                    old_snap = {}
+                    if os.path.exists(snap_file):
+                        try:
+                            with open(snap_file, "r", encoding="utf-8") as f:
+                                old_snap = json.load(f)
+                        except Exception:
+                            pass
+                    diff = ScanDiffEngine.compute_diff(old_snap, new_snap)
+                    wm.update_scanned(item.value, item.target_type)
+                    with open(snap_file, "w", encoding="utf-8") as f:
+                        json.dump(new_snap, f, indent=2, ensure_ascii=False)
+                    results.append({"target": item.value, "type": item.target_type, "diff": diff})
+
+                self._send_json({"success": True, "results": results})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path == "/api/cypher":
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                query = data.get("query", "")
+                params = data.get("params", {})
+                records = GLOBAL_ORCHESTRATOR.graph.execute_cypher(query, params)
+                self._send_json({"success": True, "query": query, "records": records})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
+            return
+
+        if path == "/api/report":
+            from hamsa.core.reporting import ReportGenerator
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+                fmt = data.get("format", "html").lower()
+                title = data.get("title", "HAMSA OSINT Intelligence Dossier")
+                reporter = ReportGenerator(GLOBAL_ORCHESTRATOR.graph)
+                targets = [(n.value, n.type) for n in GLOBAL_ORCHESTRATOR.graph.nodes.values() if n.confidence >= 0.95][:3]
+                if not targets:
+                    targets = [("Target Subject", TargetType.USERNAME)]
+
+                if fmt in ("md", "markdown"):
+                    content = reporter.generate_markdown(targets, title)
+                else:
+                    content = reporter.generate_html(targets, title)
+
+                self._send_json({"success": True, "format": fmt, "content": content})
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=500)
             return
 
         if path == "/api/scan":
@@ -556,6 +674,9 @@ class HamsaApiHandler(BaseHTTPRequestHandler):
 
 def is_port_available(host: str, port: int) -> bool:
     """Checks whether a TCP port is free for binding."""
+    if port == 8080:
+        # CRITICAL CONSTRAINT: Never probe or bind port 8080 (reserved for user's ocrawler)
+        return False
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -567,19 +688,22 @@ def is_port_available(host: str, port: int) -> bool:
 
 
 def find_safe_port(host: str = "0.0.0.0", start_port: int = 8888) -> int:
-    """Finds the first available port starting from start_port."""
+    """Finds the first available port starting from start_port, strictly avoiding port 8080."""
+    if start_port == 8080:
+        start_port = 8888
     for p in range(start_port, start_port + 50):
+        if p == 8080:
+            continue
         if is_port_available(host, p):
             return p
-    return start_port
+    return 8889
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8888) -> None:
-    """Starts the embedded Hamsa HTTP web application with pre-flight port verification."""
-    if not is_port_available(host, port):
-        log_error(f"Port {port} on {host} is currently occupied by another process!")
+    """Starts the embedded Hamsa HTTP web application with strict pre-flight port verification."""
+    if port == 8080 or not is_port_available(host, port):
         safe_port = find_safe_port(host, start_port=8888 if port == 8080 else port + 1)
-        log_info(f"Automatically switching to safe available port: {safe_port}")
+        log_info(f"Port {port} avoided or occupied. Automatically using safe port: {safe_port}")
         port = safe_port
 
     server_address = (host, port)

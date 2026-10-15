@@ -43,8 +43,16 @@ class HttpClient:
     ) -> Tuple[int, bytes, Dict[str, str]]:
         req_headers = {
             "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/json,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
+            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Linux"',
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
             "Connection": "close",
         }
         if headers:
@@ -54,7 +62,19 @@ class HttpClient:
 
         handlers = []
         if self.proxy:
-            handlers.append(urllib.request.ProxyHandler({"http": self.proxy, "https": self.proxy}))
+            # Handle SOCKS5 / HTTP proxy
+            proxy_url = self.proxy
+            if proxy_url.startswith("socks5://") or proxy_url.startswith("socks5h://"):
+                try:
+                    import socks  # type: ignore
+                    import socket
+                    parsed = urllib.parse.urlparse(proxy_url)
+                    socks.set_default_proxy(socks.SOCKS5, parsed.hostname, parsed.port or 9050)
+                    socket.socket = socks.socksocket
+                except ImportError:
+                    # Fallback to standard proxy handler
+                    pass
+            handlers.append(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
         opener = urllib.request.build_opener(*handlers)
 
         try:
@@ -115,3 +135,24 @@ class HttpClient:
             return status_code, parsed
         except Exception:
             return status_code, None
+
+    async def check_wayback_snapshot(self, target_url: str) -> Optional[Dict[str, Any]]:
+        """
+        Passively checks the Wayback Machine availability API for an archived snapshot
+        without directly hitting or fingerprinting the target server.
+        """
+        api_url = f"https://archive.org/wayback/available?url={urllib.parse.quote(target_url)}"
+        try:
+            status, data = await self.get_json(api_url)
+            if status == 200 and isinstance(data, dict) and "archived_snapshots" in data:
+                closest = data["archived_snapshots"].get("closest")
+                if closest and closest.get("available"):
+                    return {
+                        "available": True,
+                        "url": closest.get("url"),
+                        "timestamp": closest.get("timestamp"),
+                        "status": closest.get("status"),
+                    }
+        except Exception:
+            pass
+        return None
