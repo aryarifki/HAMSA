@@ -1,16 +1,24 @@
-# Hamsa OSINT Framework Dependencies
-#
-# Core Hamsa runs on Python 3.10+ Standard Library with ZERO required external dependencies.
-# The following optional dependencies unlock high-performance and advanced visualization features:
+# Hamsa OSINT Enterprise Intelligence Platform Dependencies
+# Core CLI can run on Python 3.10+ Standard Library with zero external dependencies.
+# The following dependencies power the Enterprise Web Application, Async Engine, and PostgreSQL Storage:
 
-# Optional: Ultra-fast asynchronous HTTP engine
-# aiohttp>=3.9.0
+# Enterprise ASGI Web Backend & Async Engine
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# High-Performance PostgreSQL Database Engine (Debian/Ubuntu optimized)
+asyncpg>=0.29.0
+
+# Enterprise Caching & Event Bus (Redis)
+redis>=5.0.0
+
+# Optional Neo4j Graph Database Driver
+# neo4j>=5.15.0
 
 # Optional: Deep EXIF parsing for TIFF/RAW/PNG images
 # Pillow>=10.0.0
-
-# Optional: Network analysis & graph theory algorithms
-# networkx>=3.0
 
 # Optional: Interactive leaflet geospatial maps
 # folium>=0.15.0

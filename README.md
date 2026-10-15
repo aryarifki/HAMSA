@@ -162,21 +162,53 @@ python3 -m hamsa -u sensitive_target --tor --wayback --report stealth_dossier.ht
 
 ---
 
-## 🌐 Menjalankan Web Dashboard & API Server
+## 🌐 Menjalankan Enterprise Platform (Debian & Ubuntu Ready)
 
-### 1. Jalankan Backend Server
+HAMSA menyediakan deployment otomatis (*zero-friction bootstrap*) yang dapat dijalankan secara instan di **Debian 11/12** maupun **Ubuntu 20.04/22.04/24.04 LTS**:
+
+### Metode 1: Docker Compose Enterprise (Direkomendasikan)
+Menyalakan seluruh stack (PostgreSQL 16, Redis 7, Backend FastAPI ASGI, dan Next.js MD3 Frontend) dalam satu perintah:
+
 ```bash
+# 1. Salin template konfigurasi lokal
+cp .env.example .env
+
+# 2. (Opsional) Sesuaikan POSTGRES_PASSWORD atau kredensial di file .env
+
+# 3. Jalankan seluruh kontainer di background
+docker compose up -d
+```
+- **Next.js Web Frontend**: `http://localhost:3000`
+- **Enterprise REST API**: `http://localhost:8888`
+- **Interactive Swagger Docs**: `http://localhost:8888/docs`
+- **PostgreSQL 16 Database**: `localhost:5432`
+
+---
+
+### Metode 2: Bare-Metal Server (Debian / Ubuntu Native)
+Jika menjalankan langsung di VPS atau server tanpa Docker:
+
+```bash
+# 1. Jalankan script setup otomatis (memeriksa paket Debian/Ubuntu & venv)
+chmod +x setup.sh start.sh
+./setup.sh
+
+# 2. Jalankan Enterprise Backend Service
+./start.sh
+```
+
+---
+
+### Metode 3: Standalone Zero-Dependency (CLI Mode)
+Jika hanya ingin menjalankan investigasi lokal cepat tanpa PostgreSQL eksternal (otomatis menggunakan SQLite & L1 Memory Cache):
+
+```bash
+# Menjalankan server backend lokal
 python3 -m hamsa --serve --port 8888
-```
-Backend akan aktif di `http://0.0.0.0:8888` dan menyediakan antarmuka REST API asinkron lengkap.
 
-### 2. Jalankan Frontend Next.js MD3 (InvestOwl-inspired)
-```bash
-cd frontend
-npm install
-npm run dev
+# Menjalankan frontend Next.js
+cd frontend && npm install && npm run dev
 ```
-Frontend web interaktif akan tersedia di `http://localhost:3000`.
 
 ---
 

@@ -415,6 +415,126 @@ class TestHamsaCore(unittest.TestCase):
             self.assertTrue(deleted)
             self.assertIsNone(cm.get_case(c2.id))
 
+    def test_enterprise_database_manager(self):
+        import asyncio
+        from hamsa.core.database import DatabaseManager
+        from hamsa.core.graph import KnowledgeGraph
+        from hamsa.core.models import EntityNode, RelationEdge, TargetType, RelationType
+
+        with tempfile.NamedTemporaryFile(suffix=".db") as tmp_db:
+            db = DatabaseManager()
+            db.engine_type = "sqlite"
+            db.sqlite_path = tmp_db.name
+
+            # Test connect and auto-migration
+            connected = asyncio.run(db.connect())
+            self.assertTrue(connected)
+
+            # Test case creation
+            case_data = asyncio.run(db.create_case(title="Operation Trident", case_id="case_trident", description="Test dossier"))
+            self.assertEqual(case_data["id"], "case_trident")
+            self.assertEqual(case_data["title"], "Operation Trident")
+
+            # Test graph persistence
+            kg = KnowledgeGraph()
+            n1 = EntityNode(
+                id="email:target@corp.com",
+                type=TargetType.EMAIL,
+                value="target@corp.com",
+                label="Target Email",
+                attributes={"breach_year": "2023", "breach_title": "MegaCorp Breach"}
+            )
+            n2 = EntityNode(
+                id="phone:+62812345678",
+                type=TargetType.PHONE,
+                value="+62812345678",
+                label="Target Phone",
+                attributes={"carrier": "Telkomsel"}
+            )
+            e1 = RelationEdge(
+                source_id="email:target@corp.com",
+                target_id="phone:+62812345678",
+                relation_type=RelationType.ASSOCIATED_WITH,
+                label="Linked in resume"
+            )
+            kg.add_node(n1)
+            kg.add_node(n2)
+            kg.add_edge(e1)
+
+            asyncio.run(db.save_graph("case_trident", kg))
+
+            # Test graph loading
+            loaded = asyncio.run(db.load_graph("case_trident"))
+            self.assertEqual(len(loaded.nodes), 2)
+            self.assertEqual(len(loaded.edges), 1)
+            self.assertIn("email:target@corp.com", loaded.nodes)
+
+            # Test node annotation
+            annotated = asyncio.run(db.annotate_node("case_trident", "email:target@corp.com", tag="Primary Suspect", color="#ef4444", notes="Key vector"))
+            self.assertTrue(annotated)
+
+            # Test case listing
+            cases = asyncio.run(db.list_cases())
+            self.assertGreaterEqual(len(cases), 1)
+            c_found = next(c for c in cases if c["id"] == "case_trident")
+            self.assertEqual(c_found["entity_count"], 2)
+
+            # Test evidence capture
+            ev = asyncio.run(db.add_evidence("case_trident", url="https://pastebin.com/raw/xyz", title="Dump Evidence", notes="Paste leak"))
+            self.assertEqual(ev["title"], "Dump Evidence")
+
+            # Test timeline extraction
+            events = asyncio.run(db.get_timeline_events("case_trident"))
+            self.assertGreaterEqual(len(events), 1)
+            self.assertEqual(events[0]["category"], "breach")
+
+            # Test notes update
+            notes_saved = asyncio.run(db.update_case_notes("case_trident", "All entities confirmed."))
+            self.assertTrue(notes_saved)
+
+            asyncio.run(db.close())
+
+    def test_fastapi_enterprise_app(self):
+        try:
+            from fastapi.testclient import TestClient
+            from hamsa.web.enterprise_app import app
+        except ImportError:
+            raise unittest.SkipTest("FastAPI or TestClient not installed; skipping ASGI endpoint tests.")
+
+        with TestClient(app) as client:
+            # 1. Health check
+            resp = client.get("/api/health")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["status"], "online")
+            self.assertEqual(data["version"], "2.0.0")
+
+            # 2. Create case
+            c_resp = client.post("/api/cases", json={"title": "Enterprise Case Test", "description": "Testing FastAPI", "tags": ["Unit-Test"]})
+            self.assertEqual(c_resp.status_code, 200)
+            c_data = c_resp.json()
+            self.assertTrue(c_data["success"])
+            case_id = c_data["case"]["id"]
+
+            # 3. List cases
+            l_resp = client.get("/api/cases")
+            self.assertEqual(l_resp.status_code, 200)
+            self.assertTrue(any(c["id"] == case_id for c in l_resp.json()["cases"]))
+
+            # 4. Get case detail
+            d_resp = client.get(f"/api/cases/{case_id}")
+            self.assertEqual(d_resp.status_code, 200)
+            self.assertEqual(d_resp.json()["title"], "Enterprise Case Test")
+
+            # 5. Timeline endpoint
+            t_resp = client.get(f"/api/timeline?case_id={case_id}")
+            self.assertEqual(t_resp.status_code, 200)
+            self.assertIn("events", t_resp.json())
+
+            # 6. Cache stats
+            cs_resp = client.get("/api/cache/stats")
+            self.assertEqual(cs_resp.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

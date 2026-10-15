@@ -1,0 +1,104 @@
+# ==============================================================================
+# HAMSA OSINT ENTERPRISE PLATFORM - DOCKER COMPOSE ORCHESTRATION
+# Optimized for Debian 11/12 and Ubuntu 20.04/22.04/24.04 LTS Environments
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL 16 Enterprise Relational & Knowledge Graph Database
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-bookworm
+    container_name: hamsa_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hamsa_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hamsa_secure_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-hamsa_intelligence}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - hamsa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hamsa_admin} -d ${POSTGRES_DB:-hamsa_intelligence}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hamsa_net
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis 7 High-Performance Cache & Event Bus
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: hamsa_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - hamsa_redisdata:/data
+    networks:
+      - hamsa_net
+
+  # ----------------------------------------------------------------------------
+  # 3. HAMSA Enterprise ASGI Web API (FastAPI + Uvicorn)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hamsa_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      HAMSA_DB_ENGINE: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hamsa_admin}:${POSTGRES_PASSWORD:-hamsa_secure_password_2026}@postgres:5432/${POSTGRES_DB:-hamsa_intelligence}
+      HAMSA_CACHE_ENGINE: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      HAMSA_WEB_PORT: 8888
+      HAMSA_WEB_HOST: 0.0.0.0
+      HAMSA_SECRET_KEY: ${HAMSA_SECRET_KEY:-change_this_to_a_random_32_character_string_for_production}
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8888:8888"
+    networks:
+      - hamsa_net
+
+  # ----------------------------------------------------------------------------
+  # 4. Next.js 16 Material Design 3 Frontend
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hamsa_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      INTERNAL_BACKEND_URL: http://backend:8888
+      NEXT_PUBLIC_API_URL: http://localhost:8888
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    networks:
+      - hamsa_net
+
+volumes:
+  hamsa_pgdata:
+    driver: local
+  hamsa_redisdata:
+    driver: local
+
+networks:
+  hamsa_net:
+    driver: bridge

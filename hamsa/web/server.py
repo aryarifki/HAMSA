@@ -897,6 +897,17 @@ def run_server(host: str = "0.0.0.0", port: int = 8888) -> None:
         log_info(f"Port {port} avoided or occupied. Automatically using safe port: {safe_port}")
         port = safe_port
 
+    # Attempt Enterprise ASGI Engine (FastAPI + Uvicorn)
+    try:
+        import uvicorn
+        from hamsa.web.enterprise_app import app
+        log_success(f"Starting HAMSA Enterprise ASGI Engine (FastAPI + Uvicorn) on: http://{host}:{port}")
+        log_info(f"Interactive OpenAPI/Swagger Documentation: http://{host}:{port}/docs")
+        uvicorn.run(app, host=host, port=port, log_level="info")
+        return
+    except ImportError:
+        log_info("FastAPI/Uvicorn not found. Operating in lightweight stdlib HTTP server mode.")
+
     server_address = (host, port)
     httpd = HTTPServer(server_address, HamsaApiHandler)
     log_success(f"Hamsa Web Dashboard & REST API is running at: http://{host}:{port}")
