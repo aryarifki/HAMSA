@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { Icon } from "@iconify/react";
 import TargetCard from "@/components/home/TargetCard";
@@ -25,6 +26,13 @@ export default function HomePage() {
   const [inputTarget, setInputTarget] = useState("");
   const [selectedType, setSelectedType] = useState<"username" | "email" | "phone">("username");
   const [isScanning, setIsScanning] = useState(false);
+  const [latestScanResult, setLatestScanResult] = useState<{
+    target: string;
+    type: string;
+    nodes: any[];
+    edges: any[];
+    summary: any;
+  } | null>(null);
 
   // System status and stats
   const { data: graphData, mutate: mutateGraph } = useSWR("/api/graph", fetcher, {
@@ -34,6 +42,20 @@ export default function HomePage() {
 
   const totalEntities = graphData?.summary?.total_entities || 0;
   const totalRelations = graphData?.summary?.total_relations || 0;
+
+  // Active displayed findings (either from latest scan in memory or from graphData)
+  const displayResult = latestScanResult || (graphData?.nodes?.length > 0 ? {
+    target: watchlist[0]?.value || (graphData.nodes.find((n: any) => n.attributes?.initial_target)?.value) || "Discovered Graph Entities",
+    type: watchlist[0]?.type || "intel",
+    nodes: graphData.nodes,
+    edges: graphData.edges,
+    summary: graphData.summary,
+  } : null);
+
+  const displayAccounts = displayResult?.nodes?.filter((n: any) => n.id?.startsWith("account:") || n.type === "account" || n.attributes?.platform) || [];
+  const displayBreaches = displayResult?.nodes?.filter((n: any) => n.type === "breach" || n.id?.startsWith("breach:") || n.id?.startsWith("infostealer:")) || [];
+  const displayPhones = displayResult?.nodes?.filter((n: any) => n.type === "phone" || n.id?.startsWith("phone:") || n.attributes?.carrier) || [];
+
 
   const handleLaunchScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +115,13 @@ export default function HomePage() {
 
       addWatchlistTarget(newItem);
       setActiveTarget(cleanTarget, selectedType);
+      setLatestScanResult({
+        target: cleanTarget,
+        type: selectedType,
+        nodes: nodes,
+        edges: res.edges || [],
+        summary: res.summary || { total_entities: nodes.length, total_relations: (res.edges || []).length },
+      });
       mutateGraph();
 
       setCacheLoading({
@@ -201,6 +230,186 @@ export default function HomePage() {
           </form>
         </div>
       </div>
+
+      {/* LIVE INTELLIGENCE FINDINGS */}
+      {displayResult && (
+        <div className="rounded-3xl border border-[var(--md-sys-color-primary)]/40 bg-[var(--md-sys-color-surface-container)] p-6 sm:p-7 shadow-xl space-y-5 animate-in fade-in duration-300">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--md-sys-color-outline-variant)]/60 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] flex items-center justify-center text-xl shadow-md">
+                <Icon icon="ph:check-bold" width="22" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg sm:text-xl font-extrabold text-[var(--md-sys-color-on-surface)] tracking-tight">
+                    Intelligence Findings: <span className="text-[var(--md-sys-color-primary)] font-mono">{displayResult.target}</span>
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] text-[10px] font-mono font-bold uppercase">
+                    {displayResult.type}
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 font-mono">
+                  Identified {displayResult.summary?.total_entities || displayResult.nodes?.length || 0} entities & {displayResult.summary?.total_relations || displayResult.edges?.length || 0} relational connections
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Link
+                href="/graph"
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-bold text-xs shadow-md hover:opacity-90 transition-all cursor-pointer"
+              >
+                <Icon icon="ph:tree-structure-bold" width="16" />
+                <span>Explore Graph</span>
+              </Link>
+              <Link
+                href={`/target/${encodeURIComponent(displayResult.target)}`}
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] font-bold text-xs shadow-sm hover:bg-[var(--md-sys-color-surface-container-high)] transition-all cursor-pointer"
+              >
+                <Icon icon="ph:identification-badge-duotone" width="16" className="text-[var(--md-sys-color-primary)]" />
+                <span>Target Dossier</span>
+              </Link>
+              <a
+                href={`/api/report?format=html&title=Forensic%20Report:%20${encodeURIComponent(displayResult.target)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center p-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-primary)] transition-all"
+                title="Download HTML/PDF Forensic Report"
+              >
+                <Icon icon="ph:file-html-bold" width="16" />
+              </a>
+            </div>
+          </div>
+
+          {/* ACCOUNTS LIST */}
+          {displayAccounts.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-color-on-surface-variant)] flex items-center gap-1.5">
+                  <Icon icon="ph:globe-duotone" width="15" className="text-sky-500" />
+                  Discovered Online Platforms & Accounts ({displayAccounts.length})
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {displayAccounts.map((acc: any) => {
+                  const url = acc.attributes?.profile_url || (acc.value && String(acc.value).startsWith("http") ? acc.value : null);
+                  const platformName = acc.attributes?.platform || acc.label?.replace(/^account:[^:]*:/, "") || acc.value;
+                  const category = acc.attributes?.category || "Profile";
+                  return (
+                    <div
+                      key={acc.id}
+                      className="p-3.5 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/60 flex flex-col justify-between hover:border-[var(--md-sys-color-primary)]/40 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-xs text-[var(--md-sys-color-on-surface)] truncate">
+                          {platformName}
+                        </span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] uppercase">
+                          {category}
+                        </span>
+                      </div>
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2.5 text-[11px] font-mono text-sky-500 hover:underline truncate inline-flex items-center gap-1"
+                        >
+                          <Icon icon="ph:arrow-square-out-bold" width="12" />
+                          <span className="truncate">{url}</span>
+                        </a>
+                      ) : (
+                        <span className="mt-2 text-[11px] font-mono text-[var(--md-sys-color-on-surface-variant)] truncate">
+                          {acc.value}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* BREACHES (IF ANY) */}
+          {displayBreaches.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1.5">
+                <Icon icon="ph:shield-warning-duotone" width="15" />
+                Data Breach & Infostealer Infections ({displayBreaches.length})
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {displayBreaches.map((b: any) => (
+                  <div key={b.id} className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1.5">
+                    <div className="font-bold text-xs text-rose-400 truncate">
+                      {b.label || b.value}
+                    </div>
+                    {b.attributes?.hostname && (
+                      <div className="text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)]">
+                        Host: {b.attributes.hostname} ({b.attributes.operating_system || "OS"})
+                      </div>
+                    )}
+                    {b.attributes?.infection_date && (
+                      <div className="text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)]">
+                        Infected: {String(b.attributes.infection_date).slice(0, 10)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* PHONE / TELECOM (IF ANY) */}
+          {displayPhones.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+                <Icon icon="ph:phone-call-duotone" width="15" />
+                Telecommunication Intelligence
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {displayPhones.map((p: any) => (
+                  <div key={p.id} className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                    <div className="font-bold text-xs text-amber-400">
+                      {p.label || p.value}
+                    </div>
+                    {p.attributes?.carrier && (
+                      <div className="text-[11px] font-mono text-[var(--md-sys-color-on-surface)]">
+                        Carrier: <span className="font-bold">{p.attributes.carrier}</span> ({p.attributes.country || "ID"})
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-1">
+                      {p.attributes?.whatsapp_link && (
+                        <a
+                          href={p.attributes.whatsapp_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold inline-flex items-center gap-1 shadow-sm hover:opacity-90"
+                        >
+                          <Icon icon="ph:whatsapp-logo-bold" width="12" />
+                          <span>WhatsApp</span>
+                        </a>
+                      )}
+                      {p.attributes?.telegram_link && (
+                        <a
+                          href={p.attributes.telegram_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded-lg bg-sky-600 text-white text-[10px] font-bold inline-flex items-center gap-1 shadow-sm hover:opacity-90"
+                        >
+                          <Icon icon="ph:arrow-square-out-bold" width="12" />
+                          <span>Telegram</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* QUICK STATS METRICS */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
