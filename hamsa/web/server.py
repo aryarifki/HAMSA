@@ -917,3 +917,14 @@ def run_server(host: str = "0.0.0.0", port: int = 8888) -> None:
     except KeyboardInterrupt:
         log_info("Shutting down Hamsa web server...")
         httpd.server_close()
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Hamsa Web Server & REST API")
+    parser.add_argument("--serve", action="store_true", default=True, help="Run the web server")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8888, help="Port to bind to (default: 8888)")
+    args = parser.parse_args()
+    run_server(host=args.host, port=args.port)
+
