@@ -116,8 +116,8 @@ export default function TargetCard({
 
       {/* BOTTOM ACTION */}
       <div className="mt-3 pt-2 flex items-center justify-between text-xs text-[var(--md-sys-color-on-surface-variant)]">
-        <span className="text-[11px] font-mono">
-          {new Date(item.addedAt).toLocaleDateString()}
+        <span className="text-[11px] font-mono" suppressHydrationWarning>
+          {item.addedAt ? item.addedAt.slice(0, 10) : ""}
         </span>
         <Link
           href={`/target/${encodeURIComponent(item.value)}`}

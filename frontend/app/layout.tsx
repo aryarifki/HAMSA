@@ -26,28 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var local = localStorage.getItem('hamsa-global-state');
-                  var theme = 'dark';
-                  if (local) {
-                    var parsed = JSON.parse(local);
-                    if (parsed.state && parsed.state.theme) {
-                      theme = parsed.state.theme;
-                    }
-                  }
-                  document.documentElement.setAttribute('data-theme', theme);
-                } catch (e) {}
-              })();
-            `,
-          }}
-        />
-      </head>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
       <body
         className={`${inter.className} bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)] antialiased transition-colors duration-300`}
       >
