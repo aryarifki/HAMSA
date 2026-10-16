@@ -28,15 +28,15 @@ export default function TargetDossierPage() {
   // Find nodes relevant to this target
   const targetNode = nodes.find(
     (n: any) =>
-      n.value.toLowerCase() === targetId.toLowerCase() ||
-      n.id.toLowerCase().includes(targetId.toLowerCase())
+      (n.value && String(n.value).toLowerCase() === targetId.toLowerCase()) ||
+      (n.id && String(n.id).toLowerCase().includes(targetId.toLowerCase()))
   );
 
   const relatedEdges = edges.filter(
     (e: any) =>
       (targetNode && (e.source === targetNode.id || e.target === targetNode.id)) ||
-      e.source.includes(targetId) ||
-      e.target.includes(targetId)
+      (e.source && String(e.source).includes(targetId)) ||
+      (e.target && String(e.target).includes(targetId))
   );
 
   const relatedNodeIds = new Set(

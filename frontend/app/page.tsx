@@ -68,6 +68,11 @@ export default function HomePage() {
         body: JSON.stringify(payload),
       });
 
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Server returned HTTP ${resp.status}: ${errText}`);
+      }
+
       const res = await resp.json();
 
       // Count breaches and accounts for the card

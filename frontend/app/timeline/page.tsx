@@ -35,9 +35,9 @@ export default function TimelinePage() {
     const matchCat = selectedCategory === "ALL" || e.category === selectedCategory;
     const matchSearch =
       !searchTerm ||
-      e.event.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      e.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      e.timestamp.toLowerCase().includes(searchTerm.toLowerCase());
+      (e.event && String(e.event).toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (e.details && String(e.details).toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (e.timestamp && String(e.timestamp).toLowerCase().includes(searchTerm.toLowerCase()));
     return matchCat && matchSearch;
   });
 

@@ -75,7 +75,7 @@ export default function ReconLoadingOverlay() {
                 />
               ) : (
                 <Icon
-                  icon="ph:radar-bold"
+                  icon="ph:broadcast-bold"
                   className="animate-pulse"
                   width="26"
                   height="26"

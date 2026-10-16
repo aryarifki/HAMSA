@@ -8,8 +8,11 @@ Supports graceful fallback to SQLite when operating in standalone mode.
 import os
 import json
 import asyncio
+import secrets
+import uuid
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
+
 
 # Load .env if python-dotenv is present
 try:

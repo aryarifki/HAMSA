@@ -9,6 +9,11 @@ import Sidebar from "./Sidebar";
 import ThemeToggle from "./ThemeToggle";
 import ReconLoadingOverlay from "@/components/ui/ReconLoadingOverlay";
 import { useAppStore } from "@/store/useAppStore";
+import { initOfflineIcons } from "@/lib/offlineIcons";
+
+// Pre-load all Phosphor offline icons
+initOfflineIcons();
+
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

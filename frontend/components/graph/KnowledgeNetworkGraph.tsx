@@ -232,8 +232,8 @@ export default function KnowledgeNetworkGraph() {
     const chartNodes = filteredNodes.map((n) => {
       const isSelected = selectedNode?.id === n.id;
       const isSearchMatch = searchQuery
-        ? n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          n.value.toLowerCase().includes(searchQuery.toLowerCase())
+        ? (n.label && String(n.label).toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (n.value && String(n.value).toLowerCase().includes(searchQuery.toLowerCase()))
         : true;
 
       // Dim non-matching nodes when search is active

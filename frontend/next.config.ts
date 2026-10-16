@@ -25,6 +25,12 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  allowedDevOrigins: [
+    "172.28.111.217",
+    "172.28.111.217:3000",
+    "localhost:3000",
+    "127.0.0.1:3000",
+  ],
   async headers() {
     return [
       {
