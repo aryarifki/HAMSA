@@ -106,6 +106,7 @@ class Orchestrator:
         Streams real-time events via on_event callback if provided.
         """
         context = context or {}
+        target_graph = KnowledgeGraph()
         visited_targets: Set[Tuple[str, TargetType]] = set()
         current_targets: List[Tuple[str, TargetType, Optional[str]]] = [
             (t, typ, None) for t, typ in initial_targets
@@ -149,10 +150,12 @@ class Orchestrator:
                 if res.success:
                     for node in res.nodes:
                         self.graph.add_node(node)
+                        target_graph.add_node(node)
                         if on_event:
                             on_event("node_added", node.to_dict())
                     for edge in res.edges:
                         self.graph.add_edge(edge)
+                        target_graph.add_edge(edge)
                         if on_event:
                             on_event("edge_added", edge.to_dict())
 
@@ -166,6 +169,7 @@ class Orchestrator:
                             label="Discovered From Profile",
                         )
                         self.graph.add_edge(derived_edge)
+                        target_graph.add_edge(derived_edge)
                         if on_event:
                             on_event("edge_added", derived_edge.to_dict())
 
@@ -191,6 +195,7 @@ class Orchestrator:
                             label="Co-investigated Target",
                         )
                         self.graph.add_edge(co_edge)
+                        target_graph.add_edge(co_edge)
                         if on_event:
                             on_event("edge_added", co_edge.to_dict())
 
@@ -198,7 +203,7 @@ class Orchestrator:
             if recursive and current_depth < max_depth and next_candidates:
                 brain = AgentBrain(max_depth=max_depth)
                 plan = brain.evaluate_and_plan(
-                    graph=self.graph,
+                    graph=target_graph,
                     current_depth=current_depth,
                     raw_candidates=next_candidates,
                     visited_keys=visited_targets,
@@ -223,6 +228,6 @@ class Orchestrator:
                 break
 
         if on_event:
-            on_event("complete", self.graph.to_dict()["summary"])
+            on_event("complete", target_graph.to_dict()["summary"])
 
-        return self.graph
+        return target_graph

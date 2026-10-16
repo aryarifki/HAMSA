@@ -43,18 +43,18 @@ export default function HomePage() {
   const totalEntities = graphData?.summary?.total_entities || 0;
   const totalRelations = graphData?.summary?.total_relations || 0;
 
-  // Active displayed findings (either from latest scan in memory or from graphData)
-  const displayResult = latestScanResult || (graphData?.nodes?.length > 0 ? {
-    target: watchlist[0]?.value || (graphData.nodes.find((n: any) => n.attributes?.initial_target)?.value) || "Discovered Graph Entities",
-    type: watchlist[0]?.type || "intel",
-    nodes: graphData.nodes,
-    edges: graphData.edges,
-    summary: graphData.summary,
-  } : null);
+  // Active displayed findings strictly scoped to the active scan
+  const displayResult = latestScanResult;
 
-  const displayAccounts = displayResult?.nodes?.filter((n: any) => n.id?.startsWith("account:") || n.type === "account" || n.attributes?.platform) || [];
-  const displayBreaches = displayResult?.nodes?.filter((n: any) => n.type === "breach" || n.id?.startsWith("breach:") || n.id?.startsWith("infostealer:")) || [];
-  const displayPhones = displayResult?.nodes?.filter((n: any) => n.type === "phone" || n.id?.startsWith("phone:") || n.attributes?.carrier) || [];
+  const displayAccounts = (displayResult?.nodes || []).filter(
+    (n: any) => n.id?.startsWith("account:") || n.type === "account" || n.attributes?.platform
+  );
+  const displayBreaches = (displayResult?.nodes || []).filter(
+    (n: any) => n.type === "breach" || n.id?.startsWith("breach:") || n.id?.startsWith("infostealer:")
+  );
+  const displayPhones = (displayResult?.nodes || []).filter(
+    (n: any) => n.type === "phone" || n.id?.startsWith("phone:") || n.attributes?.carrier
+  );
 
 
   const handleLaunchScan = async (e: React.FormEvent) => {
@@ -203,7 +203,7 @@ export default function HomePage() {
                     ? "Enter target username (e.g. torvalds)..."
                     : selectedType === "email"
                     ? "Enter target email address (e.g. victim@domain.com)..."
-                    : "Enter target phone number (e.g. +628123456789 or 08123456789)..."
+                    : "Enter target phone number (e.g. 0818123456 or +6289612345678)..."
                 }
                 className="w-full px-4 py-2.5 text-xs sm:text-sm rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] outline-none focus:border-[var(--md-sys-color-primary)] font-medium transition-all shadow-inner"
               />
