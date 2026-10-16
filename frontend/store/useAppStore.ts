@@ -65,7 +65,7 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       theme: "dark",
       sidebarOpen: false,
-      activeTarget: "torvalds",
+      activeTarget: "",
       activeTargetType: "username",
       depth: 1,
       recursive: true,
@@ -73,18 +73,7 @@ export const useAppStore = create<AppState>()(
       getcontactToken: "",
       truecallerToken: "",
       proxy: "",
-      watchlist: [
-        {
-          id: "username:torvalds",
-          value: "torvalds",
-          type: "username",
-          label: "Linus Torvalds",
-          addedAt: new Date().toISOString(),
-          riskLevel: "medium",
-          accountsFound: 14,
-          breachesFound: 0,
-        },
-      ],
+      watchlist: [],
       cacheLoading: {
         isOpen: false,
         title: "Intelligence Recon & Caching",
@@ -122,12 +111,14 @@ export const useAppStore = create<AppState>()(
       addWatchlistTarget: (item) =>
         set((state) => {
           const exists = state.watchlist.some((w) => w.id === item.id);
-          if (exists) {
-            return {
-              watchlist: state.watchlist.map((w) => (w.id === item.id ? item : w)),
-            };
-          }
-          return { watchlist: [item, ...state.watchlist] };
+          const nextList = exists
+            ? state.watchlist.map((w) => (w.id === item.id ? item : w))
+            : [item, ...state.watchlist];
+          return {
+            watchlist: nextList,
+            activeTarget: item.value,
+            activeTargetType: item.type as any,
+          };
         }),
       removeWatchlistTarget: (id) =>
         set((state) => ({

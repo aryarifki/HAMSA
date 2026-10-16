@@ -258,30 +258,88 @@ export default function HomePage() {
             {/* Quick Actions */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Link
-                href="/graph"
+                href={`/target/${encodeURIComponent(displayResult.target)}`}
                 className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] font-bold text-xs shadow-md hover:opacity-90 transition-all cursor-pointer"
               >
-                <Icon icon="ph:tree-structure-bold" width="16" />
-                <span>Explore Graph</span>
+                <Icon icon="ph:identification-badge-duotone" width="16" />
+                <span>Buka Berkas Target (Dossier)</span>
               </Link>
               <Link
-                href={`/target/${encodeURIComponent(displayResult.target)}`}
+                href="/graph"
                 className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] font-bold text-xs shadow-sm hover:bg-[var(--md-sys-color-surface-container-high)] transition-all cursor-pointer"
               >
-                <Icon icon="ph:identification-badge-duotone" width="16" className="text-[var(--md-sys-color-primary)]" />
-                <span>Target Dossier</span>
+                <Icon icon="ph:tree-structure-bold" width="16" />
+                <span>Lihat Graf Entitas</span>
               </Link>
               <a
                 href={`/api/report?format=html&title=Forensic%20Report:%20${encodeURIComponent(displayResult.target)}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center justify-center p-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-primary)] transition-all"
-                title="Download HTML/PDF Forensic Report"
+                title="Download Laporan Forensik HTML"
               >
                 <Icon icon="ph:file-html-bold" width="16" />
               </a>
             </div>
           </div>
+
+          {/* EMAIL THREAT ASSESSMENT BANNER (EXPLICIT FOR EMAIL SEARCHES) */}
+          {displayResult.type === "email" && (
+            <div
+              className={`p-5 rounded-2xl border space-y-3 ${
+                displayBreaches.length > 0
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                  : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      displayBreaches.length > 0 ? "bg-rose-500 text-white" : "bg-emerald-500 text-white"
+                    }`}
+                  >
+                    <Icon
+                      icon={displayBreaches.length > 0 ? "ph:shield-warning-bold" : "ph:shield-check-bold"}
+                      width="22"
+                    />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[var(--md-sys-color-on-surface)]">
+                      {displayBreaches.length > 0
+                        ? `Peringatan: Ditemukan ${displayBreaches.length} Insiden Kebocoran / Infeksi Malware!`
+                        : "Audit Selesai: Email Bersih / Belum Terdeteksi Bocor"}
+                    </h3>
+                    <p className="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+                      {displayBreaches.length > 0
+                        ? "Alamat email ini teridentifikasi dalam database kebocoran kredensial publik atau log infeksi infostealer."
+                        : "Pemeriksaan terhadap XposedOrNot dan Hudson Rock tidak menemukan kebocoran publik untuk email ini."}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href={`/target/${encodeURIComponent(displayResult.target)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] hover:text-[var(--md-sys-color-primary)] transition-all shrink-0 self-start sm:self-auto"
+                >
+                  <span>Buka Tabel Breaches</span>
+                  <Icon icon="ph:arrow-right-bold" width="12" />
+                </Link>
+              </div>
+
+              {/* Quick Guidance / Remediation */}
+              <div className="p-3 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/60 border border-[var(--md-sys-color-outline-variant)]/40 text-xs text-[var(--md-sys-color-on-surface-variant)] space-y-1">
+                <div className="font-bold text-[var(--md-sys-color-on-surface)] text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                  <Icon icon="ph:info-bold" width="13" className="text-[var(--md-sys-color-primary)]" />
+                  Rekomendasi Tindakan Forensik
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  {displayBreaches.length > 0
+                    ? "Segera lakukan rotasi kata sandi untuk semua layanan yang terdaftar menggunakan email ini, aktifkan Multi-Factor Authentication (2FA), dan periksa komputer yang bersangkutan dengan pemindai malware."
+                    : "Email dalam kondisi aman. Tetap pantau secara berkala dan gunakan kata sandi yang unik serta pengelola kata sandi (password manager)."}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* ACCOUNTS LIST */}
           {displayAccounts.length > 0 && (
@@ -340,23 +398,51 @@ export default function HomePage() {
                 Data Breach & Infostealer Infections ({displayBreaches.length})
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {displayBreaches.map((b: any) => (
-                  <div key={b.id} className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1.5">
-                    <div className="font-bold text-xs text-rose-400 truncate">
-                      {b.label || b.value}
+                {displayBreaches.map((b: any) => {
+                  const host = b.attributes?.hostname || b.attributes?.computer_name;
+                  const os = b.attributes?.operating_system || b.attributes?.os;
+                  const date = b.attributes?.infection_date || b.attributes?.breach_date || b.attributes?.date;
+                  const source = b.attributes?.source || b.source_plugin || "Infostealer Log";
+                  const av = b.attributes?.antivirus;
+                  return (
+                    <div key={b.id} className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-2 hover:border-rose-500/50 transition-all shadow-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-bold text-xs text-rose-400 break-all">
+                          {b.label || b.value}
+                        </span>
+                        <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 shrink-0">
+                          {source}
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-[11px] font-mono text-[var(--md-sys-color-on-surface-variant)] pt-1 border-t border-rose-500/20">
+                        {host && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] opacity-75">Hostname:</span>
+                            <span className="font-bold text-[var(--md-sys-color-on-surface)] truncate max-w-[140px]">{host}</span>
+                          </div>
+                        )}
+                        {os && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] opacity-75">OS:</span>
+                            <span className="text-[var(--md-sys-color-on-surface)]">{os}</span>
+                          </div>
+                        )}
+                        {av && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] opacity-75">Antivirus:</span>
+                            <span className="text-amber-400">{av}</span>
+                          </div>
+                        )}
+                        {date && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] opacity-75">Tanggal Terpapar:</span>
+                            <span className="text-[var(--md-sys-color-on-surface)]">{String(date).slice(0, 10)}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {b.attributes?.hostname && (
-                      <div className="text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)]">
-                        Host: {b.attributes.hostname} ({b.attributes.operating_system || "OS"})
-                      </div>
-                    )}
-                    {b.attributes?.infection_date && (
-                      <div className="text-[10px] font-mono text-[var(--md-sys-color-on-surface-variant)]">
-                        Infected: {String(b.attributes.infection_date).slice(0, 10)}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

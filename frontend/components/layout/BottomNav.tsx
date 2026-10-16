@@ -8,7 +8,7 @@ import { useAppStore } from "@/store/useAppStore";
 
 export default function BottomNav() {
   const pathname = usePathname();
-  const { activeTarget } = useAppStore();
+  const { activeTarget, watchlist } = useAppStore();
 
   const isHome = pathname === "/";
   const isGraph = pathname === "/graph";
@@ -17,7 +17,8 @@ export default function BottomNav() {
   const isBreaches = pathname === "/breaches";
   const isContacts = pathname === "/contacts";
 
-  const targetPath = `/target/${encodeURIComponent(activeTarget || "torvalds")}`;
+  const currentTarget = activeTarget || (watchlist.length > 0 ? watchlist[0].value : null);
+  const targetPath = currentTarget ? `/target/${encodeURIComponent(currentTarget)}` : "/";
 
   const navItemClass = (active: boolean) =>
     `flex flex-col items-center justify-center flex-1 py-1 text-[9px] font-semibold transition-all ${

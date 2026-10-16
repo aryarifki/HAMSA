@@ -25,9 +25,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const isContacts = pathname === "/contacts";
   const isTimeline = pathname === "/timeline";
 
-  const { activeTarget, sidebarOpen, setSidebarOpen, activeCaseTitle } = useAppStore();
+  const { activeTarget, watchlist, sidebarOpen, setSidebarOpen, activeCaseTitle } = useAppStore();
 
-  const targetPath = `/target/${encodeURIComponent(activeTarget || "torvalds")}`;
+  const currentTarget = activeTarget || (watchlist.length > 0 ? watchlist[0].value : null);
+  const targetPath = currentTarget ? `/target/${encodeURIComponent(currentTarget)}` : "/";
 
   const desktopNavLinkClass = (active: boolean) =>
     `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold tracking-tight transition-all duration-150 ${

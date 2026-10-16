@@ -55,6 +55,7 @@ export default function KnowledgeNetworkGraph() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>("all");
   const [layoutMode, setLayoutMode] = useState<"force" | "circular">("force");
+  const [graphViewMode, setGraphViewMode] = useState<"network" | "table">("network");
   const [liveStreaming, setLiveStreaming] = useState(false);
   const [streamStats, setStreamStats] = useState({ nodes: 0, edges: 0, lastEvent: "Idle" });
   const [annotationNote, setAnnotationNote] = useState("");
@@ -223,6 +224,34 @@ export default function KnowledgeNetworkGraph() {
     return liveEdges.filter((e) => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target));
   }, [liveEdges, filteredNodeIds]);
 
+  // Lookup of relational connections per node
+  const nodeConnections = useMemo(() => {
+    const map: Record<string, { count: number; targets: string[] }> = {};
+    liveEdges.forEach((edge) => {
+      if (!map[edge.source]) map[edge.source] = { count: 0, targets: [] };
+      if (!map[edge.target]) map[edge.target] = { count: 0, targets: [] };
+      map[edge.source].count += 1;
+      map[edge.source].targets.push(edge.target);
+      map[edge.target].count += 1;
+      map[edge.target].targets.push(edge.source);
+    });
+    return map;
+  }, [liveEdges]);
+
+  // Entities filtered for the human-readable table view
+  const tableNodes = useMemo(() => {
+    return filteredNodes.filter((n) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        (n.label && n.label.toLowerCase().includes(q)) ||
+        (n.value && n.value.toLowerCase().includes(q)) ||
+        (n.source_plugin && n.source_plugin.toLowerCase().includes(q)) ||
+        (n.type && n.type.toLowerCase().includes(q))
+      );
+    });
+  }, [filteredNodes, searchQuery]);
+
   const chartOption = useMemo(() => {
     const categories = Array.from(new Set(liveNodes.map((n) => n.type))).map((type) => ({
       name: type.toUpperCase(),
@@ -358,12 +387,40 @@ export default function KnowledgeNetworkGraph() {
         {/* TOP TOOLBAR */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-3 border-b border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)]/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-2 flex-wrap">
+            {/* VIEW MODE TOGGLE (NETWORK GRAPH VS FORENSIC TABLE) */}
+            <div className="flex items-center rounded-xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-highest)] p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setGraphViewMode("network")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                  graphViewMode === "network"
+                    ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-xs"
+                    : "text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
+                }`}
+              >
+                <Icon icon="ph:graph-bold" width="14" />
+                <span>Graf Jaringan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setGraphViewMode("table")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                  graphViewMode === "table"
+                    ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-xs"
+                    : "text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
+                }`}
+              >
+                <Icon icon="ph:table-bold" width="14" />
+                <span>Tabel Forensik</span>
+              </button>
+            </div>
+
             {/* SEARCH HIGHLIGHT INPUT */}
-            <div className="relative w-48 sm:w-60">
+            <div className="relative w-44 sm:w-56">
               <Icon icon="ph:magnifying-glass-duotone" className="absolute left-2.5 top-2.5 text-[var(--md-sys-color-on-surface-variant)]" width="16" />
               <input
                 type="text"
-                placeholder="Highlight entity on canvas..."
+                placeholder={graphViewMode === "table" ? "Cari nama, value, plugin..." : "Sorot entitas di graf..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] outline-none focus:border-[var(--md-sys-color-primary)] font-medium"
@@ -376,37 +433,41 @@ export default function KnowledgeNetworkGraph() {
               onChange={(e) => setSelectedTypeFilter(e.target.value)}
               className="px-2.5 py-1.5 text-xs rounded-xl bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] font-semibold cursor-pointer outline-none"
             >
-              <option value="all">All Entity Types</option>
+              <option value="all">Semua Tipe Entitas</option>
               <option value="username">Usernames</option>
               <option value="email">Emails</option>
               <option value="phone">Phones</option>
-              <option value="breach">Breaches</option>
-              <option value="generic">Names / Tags</option>
+              <option value="breach">Kebocoran Data (Breaches)</option>
+              <option value="generic">Entitas Lainnya</option>
             </select>
 
-            {/* LAYOUT MODE BUTTONS */}
-            <div className="flex items-center rounded-xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-highest)] p-0.5">
-              <button
-                onClick={() => setLayoutMode("force")}
-                className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
-                  layoutMode === "force"
-                    ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
-                    : "text-[var(--md-sys-color-on-surface-variant)]"
-                }`}
-              >
-                Force
-              </button>
-              <button
-                onClick={() => setLayoutMode("circular")}
-                className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
-                  layoutMode === "circular"
-                    ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
-                    : "text-[var(--md-sys-color-on-surface-variant)]"
-                }`}
-              >
-                Circular
-              </button>
-            </div>
+            {/* LAYOUT MODE BUTTONS (ONLY VISIBLE IN GRAPH MODE) */}
+            {graphViewMode === "network" && (
+              <div className="flex items-center rounded-xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-highest)] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setLayoutMode("force")}
+                  className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                    layoutMode === "force"
+                      ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+                      : "text-[var(--md-sys-color-on-surface-variant)]"
+                  }`}
+                >
+                  Force
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLayoutMode("circular")}
+                  className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all cursor-pointer ${
+                    layoutMode === "circular"
+                      ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+                      : "text-[var(--md-sys-color-on-surface-variant)]"
+                  }`}
+                >
+                  Circular
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ACTION BUTTONS & LIVE RADAR STREAM TRIGGER */}
@@ -431,13 +492,15 @@ export default function KnowledgeNetworkGraph() {
               <Icon icon="ph:arrows-clockwise-bold" width="15" />
             </button>
 
-            <button
-              onClick={handleExportPNG}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] border border-[var(--md-sys-color-outline-variant)] text-xs font-semibold cursor-pointer shadow-2xs"
-            >
-              <Icon icon="ph:download-simple-bold" width="14" />
-              <span>Snapshot</span>
-            </button>
+            {graphViewMode === "network" && (
+              <button
+                onClick={handleExportPNG}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] border border-[var(--md-sys-color-outline-variant)] text-xs font-semibold cursor-pointer shadow-2xs"
+              >
+                <Icon icon="ph:download-simple-bold" width="14" />
+                <span>Snapshot</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -455,8 +518,8 @@ export default function KnowledgeNetworkGraph() {
           </div>
         )}
 
-        {/* ECHARTS CANVAS */}
-        <div className="flex-1 w-full h-full relative">
+        {/* ECHARTS CANVAS OR FORENSIC TABLE */}
+        <div className="flex-1 w-full h-full relative overflow-hidden">
           {isLoading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
               <Icon icon="ph:spinner-bold" className="animate-spin text-[var(--md-sys-color-primary)]" width="36" />
@@ -470,11 +533,153 @@ export default function KnowledgeNetworkGraph() {
                 🪬
               </div>
               <h3 className="text-base font-bold text-[var(--md-sys-color-on-surface)]">
-                No Active Intelligence Graph in {activeCaseTitle}
+                Belum Ada Entitas Intelijen di {activeCaseTitle}
               </h3>
               <p className="text-xs text-[var(--md-sys-color-on-surface-variant)] max-w-sm mt-1">
-                Launch a scan on the home page or click &quot;Live Radar Recon&quot; above to build the entity correlation graph.
+                Lakukan pelacakan target di Beranda atau klik &quot;Live Radar Recon&quot; untuk mengumpulkan entitas korelasi.
               </p>
+            </div>
+          ) : graphViewMode === "table" ? (
+            /* FORENSIC TABLE VIEW */
+            <div className="h-full overflow-y-auto p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)] pb-2 border-b border-[var(--md-sys-color-outline-variant)]">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[var(--md-sys-color-on-surface)]">
+                    {tableNodes.length} Entitas
+                  </span>
+                  <span>•</span>
+                  <span>{liveEdges.length} Relasi Kausalitas Terkoneksi</span>
+                </div>
+                <div className="text-[11px] font-mono text-[var(--md-sys-color-primary)]">
+                  Klik baris untuk membuka Workbench & Aksi Forensik di samping →
+                </div>
+              </div>
+
+              {tableNodes.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  Tidak ada entitas yang sesuai dengan filter atau pencarian &quot;{searchQuery}&quot;.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] text-[11px] font-bold uppercase tracking-wider border-b border-[var(--md-sys-color-outline-variant)]">
+                      <tr>
+                        <th className="py-3 px-4">Tipe & Identitas</th>
+                        <th className="py-3 px-4">Plugin Sumber</th>
+                        <th className="py-3 px-4 text-center">Confidence</th>
+                        <th className="py-3 px-4 text-center">Koneksi</th>
+                        <th className="py-3 px-4">Atribut & Bukti</th>
+                        <th className="py-3 px-4 text-right">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--md-sys-color-outline-variant)]/60">
+                      {tableNodes.map((node) => {
+                        const isSelected = selectedNode?.id === node.id;
+                        const conn = nodeConnections[node.id] || { count: 0, targets: [] };
+                        const color = typeColors[node.type] || "#94a3b8";
+
+                        return (
+                          <tr
+                            key={node.id}
+                            onClick={() => {
+                              setSelectedNode(node);
+                              setAnnotationNote(node.attributes?.investigator_notes || "");
+                              setAnnotationTag(node.attributes?.investigator_tag || "Primary Suspect");
+                            }}
+                            className={`cursor-pointer transition-colors ${
+                              isSelected
+                                ? "bg-[var(--md-sys-color-primary)]/15 font-medium"
+                                : "hover:bg-[var(--md-sys-color-surface-container-high)]"
+                            }`}
+                          >
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: color }}
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-bold text-[var(--md-sys-color-on-surface)] truncate max-w-xs md:max-w-sm">
+                                    {node.label}
+                                  </div>
+                                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)]">
+                                    {node.type}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-4 font-mono text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
+                              {node.source_plugin || "core_scanner"}
+                            </td>
+
+                            <td className="py-3 px-4 text-center">
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                {Math.round(node.confidence * 100)}%
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4 text-center">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]">
+                                <Icon icon="ph:git-commit-bold" width="12" />
+                                {conn.count} relasi
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4">
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {node.attributes && Object.keys(node.attributes).length > 0 ? (
+                                  Object.entries(node.attributes).slice(0, 2).map(([k, v]) => (
+                                    <span
+                                      key={k}
+                                      className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] font-mono truncate max-w-[140px]"
+                                      title={`${k}: ${String(v)}`}
+                                    >
+                                      {k}: {String(v)}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-[11px] text-[var(--md-sys-color-on-surface-variant)] italic">
+                                    -
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-4 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(node.value || node.label);
+                                  }}
+                                  className="p-1 rounded hover:bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] cursor-pointer"
+                                  title="Salin Nilai"
+                                >
+                                  <Icon icon="ph:copy-bold" width="13" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedNode(node);
+                                    setAnnotationNote(node.attributes?.investigator_notes || "");
+                                    setAnnotationTag(node.attributes?.investigator_tag || "Primary Suspect");
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-primary)] font-bold text-[11px] cursor-pointer"
+                                >
+                                  Workbench
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           ) : (
             <ReactECharts
