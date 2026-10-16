@@ -15,9 +15,12 @@ class TargetType(str, Enum):
     PHONE = "phone"
     IMAGE = "image"
     DOMAIN = "domain"
+    IP = "ip"
+    ORGANIZATION = "organization"
     BREACH = "breach"
     LOCATION = "location"
     DEVICE = "device"
+    VULNERABILITY = "vulnerability"
     GENERIC = "generic"
 
 
@@ -30,6 +33,12 @@ class RelationType(str, Enum):
     OPERATED_BY = "OPERATED_BY"
     MENTIONED_IN = "MENTIONED_IN"
     DERIVED_FROM = "DERIVED_FROM"
+    FOLLOWS = "FOLLOWS"
+    COLLEAGUE_OF = "COLLEAGUE_OF"
+    ENDORSES = "ENDORSES"
+    INTERACTED_WITH = "INTERACTED_WITH"
+    RESOLVES_TO = "RESOLVES_TO"
+    AFFECTED_BY = "AFFECTED_BY"
 
 
 @dataclass

@@ -21,6 +21,54 @@ USER_AGENTS = [
 ]
 
 
+class CircuitBreaker:
+    """
+    Resilience Circuit Breaker pattern (inspired by atdork).
+    Protects against IP bans and rate-limit loops by temporarily opening circuits to failing hosts.
+    """
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 30.0) -> None:
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_counts: Dict[str, int] = {}
+        self.last_failure_time: Dict[str, float] = {}
+        self.open_circuits: set[str] = set()
+
+    def can_request(self, host: str) -> bool:
+        if host in self.open_circuits:
+            now = time.time()
+            if now - self.last_failure_time.get(host, 0) > self.recovery_timeout:
+                # Transition to half-open: allow probe
+                self.open_circuits.remove(host)
+                self.failure_counts[host] = 0
+                return True
+            return False
+        return True
+
+    def record_success(self, host: str) -> None:
+        self.failure_counts[host] = 0
+        self.open_circuits.discard(host)
+
+    def record_failure(self, host: str) -> None:
+        self.failure_counts[host] = self.failure_counts.get(host, 0) + 1
+        self.last_failure_time[host] = time.time()
+        if self.failure_counts[host] >= self.failure_threshold:
+            self.open_circuits.add(host)
+
+
+class AdaptiveDelay:
+    """
+    Adaptive delay with randomized exponential jitter (inspired by atdork).
+    """
+    @staticmethod
+    def calculate(base_delay: float, failure_count: int, max_delay: float = 10.0) -> float:
+        backoff = base_delay * (1.5 ** min(failure_count, 5))
+        jitter = random.uniform(0.05, 0.25)
+        return min(backoff + jitter, max_delay)
+
+
+GLOBAL_CIRCUIT_BREAKER = CircuitBreaker()
+
+
 class HttpClient:
     """Lightweight async HTTP client with anti-fingerprint and stealth capabilities."""
 

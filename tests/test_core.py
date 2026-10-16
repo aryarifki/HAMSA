@@ -855,7 +855,184 @@ class TestHamsaCore(unittest.TestCase):
             )
             self.assertEqual(err_resp.status_code, 400)
 
+            # 4. Trilateration API endpoint
+            trilat_resp = client.post(
+                "/api/graph/trilaterate",
+                json={
+                    "p1": [-6.17, 106.82],
+                    "r1_km": 1.2,
+                    "p2": [-6.18, 106.83],
+                    "r2_km": 0.9,
+                    "p3": [-6.19, 106.81],
+                    "r3_km": 1.5,
+                },
+            )
+            self.assertEqual(trilat_resp.status_code, 200)
+            self.assertIn("estimated_latitude", trilat_resp.json())
+
+            # 5. Personas API endpoint
+            personas_resp = client.get("/api/graph/personas")
+            self.assertEqual(personas_resp.status_code, 200)
+            self.assertIn("personas", personas_resp.json())
+
+            # 6. Risk Score API endpoint
+            risk_resp = client.get("/api/graph/risk-score")
+            self.assertEqual(risk_resp.status_code, 200)
+            self.assertIn("score", risk_resp.json())
+            self.assertIn("severity", risk_resp.json())
+
+            # 7. Thematic Clusters API endpoint
+            theme_resp = client.get("/api/graph/thematic-clusters")
+            self.assertEqual(theme_resp.status_code, 200)
+            self.assertIn("thematic_clusters", theme_resp.json())
+
+    def test_circuit_breaker_and_adaptive_delay(self):
+        from hamsa.utils.http import CircuitBreaker, AdaptiveDelay
+
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=0.2)
+        host = "api.target-rate-limit.org"
+        self.assertTrue(cb.can_request(host))
+
+        cb.record_failure(host)
+        cb.record_failure(host)
+        self.assertTrue(cb.can_request(host))
+
+        cb.record_failure(host)  # reaches threshold
+        self.assertFalse(cb.can_request(host))
+
+        # Recovery after timeout
+        import time
+        time.sleep(0.25)
+        self.assertTrue(cb.can_request(host))  # half-open
+        cb.record_success(host)
+        self.assertTrue(cb.can_request(host))
+
+        # Adaptive delay calculation
+        delay1 = AdaptiveDelay.calculate(base_delay=0.2, failure_count=0)
+        delay2 = AdaptiveDelay.calculate(base_delay=0.2, failure_count=3)
+        self.assertGreater(delay2, delay1)
+
+    def test_trilateration_persona_risk_and_thematics(self):
+        from hamsa.core.analytics import (
+            SpatialFilterEngine,
+            PersonaResolutionEngine,
+            RiskScoringEngine,
+            ThematicClusteringEngine,
+        )
+        from hamsa.core.graph import KnowledgeGraph
+        from hamsa.core.models import EntityNode, TargetType, RelationEdge, RelationType
+
+        # 1. Trilateration test
+        # Target: (-6.1754, 106.8272)
+        target = (-6.1754, 106.8272)
+        p1 = (-6.1700, 106.8200)
+        p2 = (-6.1800, 106.8300)
+        p3 = (-6.1700, 106.8350)
+        r1 = SpatialFilterEngine.haversine_distance_km(target[0], target[1], p1[0], p1[1])
+        r2 = SpatialFilterEngine.haversine_distance_km(target[0], target[1], p2[0], p2[1])
+        r3 = SpatialFilterEngine.haversine_distance_km(target[0], target[1], p3[0], p3[1])
+
+        est_lat, est_lon = SpatialFilterEngine.trilaterate_coordinates(p1, r1, p2, r2, p3, r3)
+        err_dist = SpatialFilterEngine.haversine_distance_km(target[0], target[1], est_lat, est_lon)
+        self.assertLess(err_dist, 0.2)  # within 200m
+
+        # 2. Persona Resolution Union-Find test
+        kg = KnowledgeGraph()
+        n_gh = EntityNode(
+            id="account:github:alice",
+            type=TargetType.GENERIC,
+            value="github/alice",
+            label="Alice GitHub",
+            attributes={"public_email": "alice@corp.com", "platform": "GitHub"},
+        )
+        n_tw = EntityNode(
+            id="account:twitter:alice_sec",
+            type=TargetType.GENERIC,
+            value="twitter/alice_sec",
+            label="Alice Twitter",
+            attributes={"email": "alice@corp.com", "platform": "Twitter"},
+        )
+        n_em = EntityNode(
+            id="email:alice@corp.com",
+            type=TargetType.EMAIL,
+            value="alice@corp.com",
+            label="alice@corp.com",
+        )
+        n_bob = EntityNode(
+            id="account:bob",
+            type=TargetType.USERNAME,
+            value="bob",
+            label="Bob",
+            attributes={"platform": "Reddit"},
+        )
+        kg.add_node(n_gh)
+        kg.add_node(n_tw)
+        kg.add_node(n_em)
+        kg.add_node(n_bob)
+
+        personas = PersonaResolutionEngine.resolve_personas(kg)
+        self.assertEqual(len(personas), 2)  # Alice cluster (3 nodes) + Bob (1 node)
+        alice_cluster = next(p for p in personas if "account:github:alice" in p["node_ids"])
+        self.assertEqual(alice_cluster["size"], 3)
+        self.assertIn("alice@corp.com", alice_cluster["correlated_emails"])
+
+        # 3. Risk Scoring test
+        kg_risk = KnowledgeGraph()
+        kg_risk.add_node(EntityNode(id="breach:canva", type=TargetType.BREACH, value="Canva", label="Canva 2019"))
+        kg_risk.add_node(EntityNode(id="malware:infostealer:redline", type=TargetType.GENERIC, value="RedLine", label="Redline Infostealer"))
+        kg_risk.add_node(EntityNode(id="phone:+62812345678", type=TargetType.PHONE, value="+62812345678", label="Phone"))
+        risk_result = RiskScoringEngine.evaluate_graph_risk(kg_risk)
+        self.assertGreaterEqual(risk_result["score"], 50.0)
+        self.assertIn(risk_result["severity"], ("HIGH", "CRITICAL"))
+
+        # 4. Thematic Clustering test
+        themes = ThematicClusteringEngine.cluster_entities(kg)
+        self.assertGreaterEqual(len(themes), 1)
+
+    def test_permutation_and_corporate_email_synthesizer(self):
+        from hamsa.core.agent_brain import UsernamePermutationEngine, CorporateEmailSynthesizer
+
+        # Username variants
+        variants = UsernamePermutationEngine.generate_variants("cyberking", limit=5)
+        self.assertGreaterEqual(len(variants), 2)
+        self.assertTrue(any("cyberking" in v for v in variants))
+
+        name_cands = UsernamePermutationEngine.name_to_usernames("John Doe")
+        self.assertIn("john.doe", name_cands)
+        self.assertIn("jdoe", name_cands)
+
+        # Corporate email synthesis
+        emails = CorporateEmailSynthesizer.synthesize_emails("Prof. Dr. John Doe, M.Eng.", "defense.gov")
+        self.assertIn("john.doe@defense.gov", emails)
+        self.assertIn("j.doe@defense.gov", emails)
+        self.assertIn("jdoe@defense.gov", emails)
+
+    def test_new_social_and_network_plugins(self):
+        from hamsa.plugins.social.instagram_lookup import InstagramLookupPlugin
+        from hamsa.plugins.network.shodan_internetdb import ShodanInternetDBPlugin
+        from hamsa.plugins.network.crtsh_subdomains import CrtshSubdomainPlugin
+        from hamsa.plugins.network.geoip_lookup import GeoIPLookupPlugin
+        from hamsa.core.models import TargetType
+
+        # Instagram Lookup
+        ig_plugin = InstagramLookupPlugin()
+        self.assertTrue(ig_plugin.can_handle("target_user", TargetType.USERNAME))
+
+        # Shodan InternetDB
+        shodan_plugin = ShodanInternetDBPlugin()
+        self.assertTrue(shodan_plugin.can_handle("8.8.8.8", TargetType.IP))
+        self.assertTrue(shodan_plugin.can_handle("example.com", TargetType.DOMAIN))
+
+        # crt.sh Subdomains
+        crt_plugin = CrtshSubdomainPlugin()
+        self.assertTrue(crt_plugin.can_handle("example.com", TargetType.DOMAIN))
+
+        # GeoIP
+        geo_plugin = GeoIPLookupPlugin()
+        self.assertTrue(geo_plugin.can_handle("1.1.1.1", TargetType.IP))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -109,3 +109,121 @@ class AgentBrain:
         ]
         plan["reason"] = f"Autonomous Brain selected {len(selected)} prioritized target(s) for Round {current_depth + 1}."
         return plan
+
+
+class UsernamePermutationEngine:
+    """
+    Username Permutation & Variant Synthesis Engine (inspired by blackbird).
+    Expands base handles and human names into plausible online alias candidates.
+    """
+
+    @classmethod
+    def generate_variants(cls, base_username: str, limit: int = 10) -> List[str]:
+        base = base_username.strip().lower()
+        if not base or len(base) < 3:
+            return []
+
+        variants = []
+        seen = {base}
+
+        # 1. Separator variations
+        for sep in ("_", ".", "-"):
+            variants.append(f"{base}{sep}")
+            variants.append(f"{sep}{base}")
+
+        # 2. Year / number affixes
+        for num in ("99", "01", "007", "123", "2024", "2025"):
+            cand = f"{base}{num}"
+            if cand not in seen:
+                seen.add(cand)
+                variants.append(cand)
+
+        # 3. Role affixes
+        for role in ("dev", "sec", "official", "real", "tech"):
+            for sep in ("_", ""):
+                cand = f"{base}{sep}{role}"
+                if cand not in seen:
+                    seen.add(cand)
+                    variants.append(cand)
+
+        return variants[:limit]
+
+    @classmethod
+    def name_to_usernames(cls, full_name: str) -> List[str]:
+        parts = [p.lower() for p in full_name.strip().split() if p.isalnum()]
+        if not parts:
+            return []
+        if len(parts) == 1:
+            return cls.generate_variants(parts[0])
+
+        first = parts[0]
+        last = parts[-1]
+        fi = first[0]
+        li = last[0]
+
+        candidates = [
+            f"{first}.{last}",
+            f"{first}_{last}",
+            f"{first}{last}",
+            f"{fi}{last}",
+            f"{fi}_{last}",
+            f"{first}{li}",
+            f"{last}.{first}",
+            f"{last}_{first}",
+        ]
+        return candidates
+
+
+class CorporateEmailSynthesizer:
+    """
+    Corporate Employee Email Synthesis & Pattern Generator (inspired by LinkedInDumper).
+    Synthesizes standard enterprise email addresses from staff names and corporate domains.
+    """
+
+    TITLE_PREFIXES = {
+        "prof", "dr", "mr", "mrs", "ms", "ir", "drs"
+    }
+    SUFFIX_TITLES = {
+        "phd", "mba", "eng", "meng", "msc", "bsc", "llm", "ma", "ba", "md", "jd", "cfa", "cpa"
+    }
+
+    @classmethod
+    def clean_name(cls, raw_name: str) -> Tuple[str, str]:
+        tokens = [t.strip(",. ") for t in raw_name.split() if t.strip(",. ")]
+        cleaned = [
+            t for t in tokens
+            if t.lower().replace(".", "") not in cls.TITLE_PREFIXES
+            and t.lower().replace(".", "") not in cls.SUFFIX_TITLES
+        ]
+        if not cleaned:
+            return ("", "")
+        if len(cleaned) == 1:
+            return (cleaned[0], "")
+        return (cleaned[0], cleaned[-1])
+
+    @classmethod
+    def synthesize_emails(cls, raw_name: str, domain: str) -> List[str]:
+        clean_domain = domain.strip().lower().lstrip("@")
+        first, last = cls.clean_name(raw_name)
+        if not first:
+            return []
+
+        first = first.lower()
+        last = last.lower()
+
+        if not last:
+            return [f"{first}@{clean_domain}"]
+
+        fi = first[0]
+        li = last[0]
+
+        return [
+            f"{first}.{last}@{clean_domain}",
+            f"{fi}.{last}@{clean_domain}",
+            f"{fi}{last}@{clean_domain}",
+            f"{first}_{last}@{clean_domain}",
+            f"{first}@{clean_domain}",
+            f"{last}.{first}@{clean_domain}",
+            f"{fi}{li}@{clean_domain}",
+        ]
+

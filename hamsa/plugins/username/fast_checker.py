@@ -97,6 +97,38 @@ class FastUsernameCheckerPlugin(BasePlugin):
         super().__init__()
         self.http_client = HttpClient(timeout=8.0, default_delay=0.1)
 
+    async def _is_soft_404_control(
+        self,
+        url_template: str,
+        username: str,
+        target_status: int,
+        target_body: str,
+    ) -> bool:
+        """
+        Baseline Control Probe (inspired by tookie-osint).
+        Checks if the platform returns a dynamic soft-404 by probing an impossible random username.
+        """
+        control_user = "hamsa_probe_nonexist_99x"
+        if "{account}" in url_template:
+            control_url = url_template.replace("{account}", control_user)
+        elif "{}" in url_template:
+            control_url = url_template.replace("{}", control_user)
+        else:
+            control_url = f"{url_template.rstrip('/')}/{control_user}"
+
+        try:
+            c_status, c_body, _ = await self.http_client.request(control_url, method="GET", jitter=False)
+            if c_status != target_status:
+                return False
+            c_text = c_body.decode("utf-8", errors="ignore")
+            clean_target = len(target_body.replace(username, ""))
+            clean_control = len(c_text.replace(control_user, ""))
+            if not clean_target or not clean_control:
+                return clean_target == clean_control
+            return abs(clean_target - clean_control) / max(clean_target, clean_control) < 0.025
+        except Exception:
+            return False
+
     async def _check_platform(
         self,
         platform: Dict[str, Any],
@@ -126,6 +158,11 @@ class FastUsernameCheckerPlugin(BasePlugin):
                 valid_marker = platform.get("valid_marker")
                 if valid_marker and valid_marker not in body_text:
                     return None
+
+                # Baseline Control False-Positive Eliminator (inspired by tookie-osint)
+                if not error_marker and not valid_marker and platform.get("check_baseline", False):
+                    if await self._is_soft_404_control(url_template, username, status, body_text):
+                        return None
 
                 node_id = f"account:{platform['name'].lower().replace(' ', '_')}:{username}"
                 attributes = {

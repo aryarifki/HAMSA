@@ -59,3 +59,13 @@ class SpatialFilterRequest(BaseModel):
     max_lon: Optional[float] = None
     polygon: Optional[List[List[float]]] = None
 
+
+class TrilaterateRequest(BaseModel):
+    p1: List[float] = Field(..., description="[lat, lon] for point 1")
+    r1_km: float = Field(..., gt=0, description="Radius 1 in kilometers")
+    p2: List[float] = Field(..., description="[lat, lon] for point 2")
+    r2_km: float = Field(..., gt=0, description="Radius 2 in kilometers")
+    p3: List[float] = Field(..., description="[lat, lon] for point 3")
+    r3_km: float = Field(..., gt=0, description="Radius 3 in kilometers")
+
+

@@ -9,9 +9,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from hamsa.core.database import GLOBAL_DB
-from hamsa.core.analytics import GraphAnalyticsEngine, SpatialFilterEngine
+from hamsa.core.analytics import (
+    GraphAnalyticsEngine,
+    SpatialFilterEngine,
+    PersonaResolutionEngine,
+    RiskScoringEngine,
+    ThematicClusteringEngine,
+)
 from hamsa.web.deps import GLOBAL_ORCHESTRATOR
-from hamsa.web.schemas import SpatialFilterRequest
+from hamsa.web.schemas import SpatialFilterRequest, TrilaterateRequest
 
 router = APIRouter(prefix="/api/graph", tags=["Knowledge Graph Analytics"])
 
@@ -100,6 +106,75 @@ async def apply_spatial_filter(payload: SpatialFilterRequest):
         raise HTTPException(status_code=400, detail=str(val_err))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Spatial filter computation error: {exc}")
+
+
+@router.post("/trilaterate")
+async def trilaterate_position(payload: TrilaterateRequest):
+    """
+    Computes estimated GPS coordinate (lat, lon) by trilaterating 3 reference points and circle radii
+    (inspired by CCTV people-nearby triangulation).
+    """
+    try:
+        p1 = (float(payload.p1[0]), float(payload.p1[1]))
+        p2 = (float(payload.p2[0]), float(payload.p2[1]))
+        p3 = (float(payload.p3[0]), float(payload.p3[1]))
+        lat, lon = SpatialFilterEngine.trilaterate_coordinates(
+            p1=p1, r1_km=payload.r1_km,
+            p2=p2, r2_km=payload.r2_km,
+            p3=p3, r3_km=payload.r3_km,
+        )
+        return {
+            "estimated_latitude": lat,
+            "estimated_longitude": lon,
+            "google_maps": f"https://www.google.com/maps?q={lat},{lon}",
+            "osm": f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Trilateration error: {exc}")
+
+
+@router.get("/personas")
+async def get_persona_clusters(case_id: Optional[str] = None):
+    """
+    Performs Union-Find Disjoint-Set Persona Resolution to merge fragmented identity nodes into unified personas
+    (inspired by nox-framework).
+    """
+    if case_id:
+        graph = await GLOBAL_DB.load_graph(case_id)
+    else:
+        graph = GLOBAL_ORCHESTRATOR.graph
+
+    personas = PersonaResolutionEngine.resolve_personas(graph)
+    return {"personas": personas, "total_personas": len(personas)}
+
+
+@router.get("/risk-score")
+async def get_graph_risk_score(case_id: Optional[str] = None):
+    """
+    Evaluates compromise severity and generates FAIR-aligned 0-100 risk assessments
+    (inspired by nox-framework).
+    """
+    if case_id:
+        graph = await GLOBAL_DB.load_graph(case_id)
+    else:
+        graph = GLOBAL_ORCHESTRATOR.graph
+
+    return RiskScoringEngine.evaluate_graph_risk(graph)
+
+
+@router.get("/thematic-clusters")
+async def get_thematic_clusters(case_id: Optional[str] = None):
+    """
+    Performs lightweight semantic topic clustering across graph nodes
+    (inspired by carrot2).
+    """
+    if case_id:
+        graph = await GLOBAL_DB.load_graph(case_id)
+    else:
+        graph = GLOBAL_ORCHESTRATOR.graph
+
+    clusters = ThematicClusteringEngine.cluster_entities(graph)
+    return {"thematic_clusters": clusters, "total_themes": len(clusters)}
 
 
 # Retain alias for timeline at /api/timeline

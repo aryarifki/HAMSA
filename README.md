@@ -110,6 +110,20 @@ Engine penyaringan spasial dan analisis geofencing berbasis komputasi geometri m
 - **Ray-Casting Point-in-Polygon (PIP)**: Menguji apakah koordinat GPS berada di dalam area poligon bebas/kompleks (*arbitrary geofence polygon*) menggunakan teorema kurva Jordan (*Jordan Curve Theorem*) tanpa dependensi berat C-extension (seperti GDAL atau Shapely).
 - **Automated GPS Extraction**: Mendeteksi koordinat lintang/bujur otomatis dari metadata EXIF kamera JPEG/TIFF, IP Geolocation, dan node tipe `TargetType.LOCATION`.
 
+### 12. Multi-Source Intelligence Engines & Keyless Recon (14 Repositories Integration)
+Integrasi logika, algoritma analitik, dan kapabilitas OSINT tingkat tinggi yang diadaptasi dari repositori intelijen siber terkemuka:
+- **Instagram Unauthenticated Contact Lookup** (*toutatis* & *InstagramPrivSniffer*): Mengekstraksi informasi kontak terselubung (*masked email* `t***s@g***.com` & *masked phone* `+62 812 •••• ••89`) secara publik tanpa memerlukan akun login.
+- **Keyless Shodan InternetDB Recon** (*theHarvester*): Memetakan port terbuka, CPE layanan, hostnames, dan kerentanan CVE aktif sebuah IP target tanpa memerlukan Shodan API Key berbayar.
+- **Certificate Transparency Subdomain Discovery** (*Amass* & *crt.sh*): Mengumpulkan seluruh rekaman subdomain domain organisasi dari log transparansi sertifikat SSL/TLS publik.
+- **Free IP Geolocation & ASN Resolver** (*cipher387/API-s-for-OSINT*): Melakukan resolusi IP target ke koordinat lintang/bujur, negara, kota, dan Autonomous System Number (ASN) dengan relasi geospasial otomatis.
+- **Dynamic Baseline Control Comparator** (*tookie-osint*): Mengeliminasi false positive pada scanning username (soft-404 dengan status 200 OK) dengan membandingkan respons target terhadap string acak baseline non-existent.
+- **Persona Resolution Engine** (*nox-framework*): Algoritma *Union-Find / Disjoint-Set* untuk menggabungkan fragmen entitas yang tersebar (username, email, telepon, media sosial) menjadi kluster profil identitas tunggal (*Unified Personas*).
+- **FAIR-Aligned Quantitative Risk Scoring** (*nox-framework*): Engine kalkulasi ancaman 0–100 berdasarkan eksposur kebocoran data, infeksi malware, kerentanan CVE kritis, dan port berisiko tinggi.
+- **Geometric 3-Circle Trilateration** (*IvanGlinkin/CCTV*): Penentuan estimasi posisi koordinat target menggunakan metode perpotongan 3 lingkaran spasial tertutup (*closed-form 2D trilateration*).
+- **Username Permutation & Variation Synthesis** (*blackbird*): Menghasilkan variasi handle username secara cerdas menggunakan permutasi separator (`.`, `_`, `-`) dan afiks (`real_`, `_official`, `01`, dll).
+- **Corporate Employee Cleansing & Pattern Synthesizer** (*LinkedInDumper*): Membersihkan gelar formal/akademik (`Prof.`, `Dr.`, `M.Eng.`, `Ph.D.`) dan mensintesis pola email korporat standar (`first.last@domain.com`, `flast@domain.com`, dll).
+- **Thematic Topic Clustering** (*carrot2*): Pengelompokan semantik entitas target berdasarkan kata kunci dominan dan minat topik.
+- **Resilience Circuit Breaker & Adaptive Delay** (*atdork*): Proteksi kegagalan jaringan eksternal dengan auto-trip circuit breaker dan backoff jitter adaptif.
 
 ---
 
@@ -233,6 +247,10 @@ cd frontend && npm install && npm run dev
 | `GET` | `/api/graph/centrality` | **Centrality Scoring**: Menghitung simpul kunci koordinator & *bridge brokerage*. |
 | `GET` | `/api/graph/clusters` | **Cluster Detection**: Mengelompokkan sub-jaringan cincin tersangka yang terisolasi. |
 | `POST` | `/api/graph/spatial-filter` | **Spatial Geofencing Filter**: Memfilter koordinat GPS (EXIF/Location) dengan radius Haversine, Bounding Box (AABB), atau Poligon Ray-Casting. |
+| `POST` | `/api/graph/trilaterate` | **Geometric 3-Circle Trilateration**: Menghitung estimasi koordinat target (Lat/Lon) dari 3 titik referensi lingkaran (`lat`, `lon`, `distance_km`). |
+| `GET` | `/api/graph/personas` | **Disjoint-Set Persona Resolution**: Mengelompokkan identitas terfragmentasi menjadi kluster persona terpadu (*Unified Personas*). |
+| `GET` | `/api/graph/risk-score` | **FAIR-Aligned Quantitative Risk Scoring**: Menghitung skor risiko terbobot (0–100) berdasarkan CVE, malware, kebocoran data, dan port terbuka. |
+| `GET` | `/api/graph/thematic-clusters` | **Thematic Topic Clustering**: Mengelompokkan node berdasarkan tema topik dan kata kunci semantik dominan. |
 | `GET` | `/api/timeline` | Mengekstrak rekaman jejak kronologis (EXIF, breach dates, malware timestamps) per kasus. |
 | `POST` | `/api/scan` | Memulai investigasi baru (`username`, `email`, `phone`, `depth`, `all_sites`, dll). |
 | `GET` | `/api/scan/stream` | **Server-Sent Events (SSE)**: Streaming radar pemindaian real-time (`node_added`, `edge_added`). |

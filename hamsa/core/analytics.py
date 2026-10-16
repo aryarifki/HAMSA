@@ -420,3 +420,250 @@ class SpatialFilterEngine:
             "matches": matches,
         }
 
+    @classmethod
+    def trilaterate_coordinates(
+        cls,
+        p1: Tuple[float, float],
+        r1_km: float,
+        p2: Tuple[float, float],
+        r2_km: float,
+        p3: Tuple[float, float],
+        r3_km: float,
+    ) -> Tuple[float, float]:
+        """
+        Solves 2D trilateration on local tangent plane from 3 reference points and circle radii
+        (inspired by CCTV people-nearby triangulation).
+        Returns estimated (latitude, longitude).
+        """
+        lat1, lon1 = p1
+        lat2, lon2 = p2
+        lat3, lon3 = p3
+
+        # Project to local Cartesian plane with origin at p1
+        r_earth = cls.EARTH_RADIUS_KM
+        cos_lat1 = math.cos(math.radians(lat1))
+
+        x2 = r_earth * math.radians(lon2 - lon1) * cos_lat1
+        y2 = r_earth * math.radians(lat2 - lat1)
+
+        x3 = r_earth * math.radians(lon3 - lon1) * cos_lat1
+        y3 = r_earth * math.radians(lat3 - lat1)
+
+        # Circle intersection linear equations:
+        # 2*x*x2 + 2*y*y2 = x2^2 + y2^2 + r1^2 - r2^2
+        # 2*x*x3 + 2*y*y3 = x3^2 + y3^2 + r1^2 - r3^2
+        A = 2.0 * x2
+        B = 2.0 * y2
+        C = x2**2 + y2**2 + r1_km**2 - r2_km**2
+
+        D = 2.0 * x3
+        E = 2.0 * y3
+        F = x3**2 + y3**2 + r1_km**2 - r3_km**2
+
+        det = A * E - B * D
+        if abs(det) < 1e-9:
+            # Collinear points fallback: midpoint of p1 and p2
+            return round((lat1 + lat2) / 2.0, 6), round((lon1 + lon2) / 2.0, 6)
+
+        x = (C * E - B * F) / det
+        y = (A * F - C * D) / det
+
+        # Convert local coordinates back to (lat, lon)
+        est_lat = lat1 + math.degrees(y / r_earth)
+        est_lon = lon1 + math.degrees(x / (r_earth * max(cos_lat1, 1e-6)))
+
+        return round(est_lat, 6), round(est_lon, 6)
+
+
+class PersonaResolutionEngine:
+    """
+    Union-Find Disjoint-Set Persona Resolution Engine (inspired by nox-framework).
+    Merges fragmented identity nodes (usernames, emails, phone numbers, social accounts)
+    into unified real-world Persona Clusters based on shared pivot identifiers.
+    """
+
+    @classmethod
+    def resolve_personas(cls, graph: KnowledgeGraph) -> List[Dict[str, Any]]:
+        parent: Dict[str, str] = {nid: nid for nid in graph.nodes}
+
+        def find(i: str) -> str:
+            path = []
+            while parent[i] != i:
+                path.append(i)
+                i = parent[i]
+            for node in path:
+                parent[node] = i
+            return i
+
+        def union(i: str, j: str) -> None:
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_i] = root_j
+
+        # 1. Pivot key index: pivot_key -> list of node_ids
+        pivot_map: Dict[str, List[str]] = {}
+
+        for nid, node in graph.nodes.items():
+            # Index by primary value for emails, phones
+            if node.type in (TargetType.EMAIL, TargetType.PHONE):
+                clean_val = node.value.strip().lower()
+                pivot_map.setdefault(f"{node.type.value}:{clean_val}", []).append(nid)
+
+            attrs = node.attributes or {}
+            for email_key in ("public_email", "email", "recovery_email"):
+                if attrs.get(email_key):
+                    clean_e = str(attrs[email_key]).strip().lower()
+                    pivot_map.setdefault(f"email:{clean_e}", []).append(nid)
+
+            for phone_key in ("public_phone", "phone", "recovery_phone", "raw_phone"):
+                if attrs.get(phone_key):
+                    clean_p = str(attrs[phone_key]).strip()
+                    pivot_map.setdefault(f"phone:{clean_p}", []).append(nid)
+
+        # Union nodes sharing identical verified pivot keys
+        for pivot, node_ids in pivot_map.items():
+            if len(node_ids) > 1:
+                first = node_ids[0]
+                for other in node_ids[1:]:
+                    union(first, other)
+
+        # Union nodes connected via direct associative edges
+        for edge in graph.edges:
+            rel = edge.relation_type.value if hasattr(edge.relation_type, "value") else str(edge.relation_type)
+            if rel in ("ASSOCIATED_WITH", "DERIVED_FROM", "REGISTERED_ON"):
+                if edge.source_id in parent and edge.target_id in parent:
+                    union(edge.source_id, edge.target_id)
+
+        # Group into clusters
+        clusters: Dict[str, List[str]] = {}
+        for nid in graph.nodes:
+            root = find(nid)
+            clusters.setdefault(root, []).append(nid)
+
+        results = []
+        cluster_idx = 1
+        for root, member_ids in sorted(clusters.items(), key=lambda x: len(x[1]), reverse=True):
+            member_nodes = [graph.nodes[nid].to_dict() for nid in member_ids if nid in graph.nodes]
+            types = list({n["type"] for n in member_nodes})
+            emails = list({n["value"] for n in member_nodes if n["type"] == TargetType.EMAIL.value})
+            phones = list({n["value"] for n in member_nodes if n["type"] == TargetType.PHONE.value})
+            usernames = list({n["value"] for n in member_nodes if n["type"] == TargetType.USERNAME.value})
+
+            lead_label = graph.nodes[root].label if root in graph.nodes else member_ids[0]
+
+            results.append({
+                "persona_id": f"persona_{cluster_idx}",
+                "lead_label": lead_label,
+                "size": len(member_ids),
+                "node_ids": member_ids,
+                "entity_types": types,
+                "correlated_emails": emails,
+                "correlated_phones": phones,
+                "correlated_usernames": usernames,
+                "nodes": member_nodes,
+            })
+            cluster_idx += 1
+
+        return results
+
+
+class RiskScoringEngine:
+    """
+    Forensic Threat & Risk Scoring Engine (inspired by nox-framework).
+    Evaluates compromise severity and generates FAIR-aligned 0-100 risk assessments.
+    """
+
+    @classmethod
+    def evaluate_graph_risk(cls, graph: KnowledgeGraph) -> Dict[str, Any]:
+        score = 0.0
+        factors = []
+
+        total_nodes = len(graph.nodes)
+        if total_nodes == 0:
+            return {"score": 0.0, "severity": "LOW", "factors": ["No target assets in graph."]}
+
+        # 1. Infostealer exposure
+        infostealers = [n for n in graph.nodes.values() if "infostealer" in n.id.lower() or "malware" in n.id.lower()]
+        if infostealers:
+            score += 35.0
+            factors.append(f"CRITICAL: {len(infostealers)} infostealer malware infection record(s) detected.")
+
+        # 2. Breach records
+        breaches = [n for n in graph.nodes.values() if n.type == TargetType.BREACH or "breach" in n.id.lower()]
+        if breaches:
+            added = min(25.0, len(breaches) * 8.0)
+            score += added
+            factors.append(f"HIGH: {len(breaches)} public corporate/service breach record(s) identified.")
+
+        # 3. Telecommunication & Physical Location Exposure
+        locations = [n for n in graph.nodes.values() if n.type == TargetType.LOCATION]
+        phones = [n for n in graph.nodes.values() if n.type == TargetType.PHONE]
+        if locations:
+            score += 15.0
+            factors.append(f"MEDIUM: Physical GPS coordinates ({len(locations)} location node(s)) discovered.")
+        if phones:
+            score += 10.0
+            factors.append(f"MEDIUM: Direct telephone line ({len(phones)} phone node(s)) exposed.")
+
+        # 4. Digital Footprint Breadth
+        usernames = [n for n in graph.nodes.values() if n.type == TargetType.USERNAME or n.id.startswith("account:")]
+        if len(usernames) >= 5:
+            score += 15.0
+            factors.append(f"LOW: Broad online attack surface ({len(usernames)} registered public account(s)).")
+        elif len(usernames) >= 2:
+            score += 5.0
+            factors.append(f"LOW: Multiple registered social accounts ({len(usernames)} account(s)).")
+
+        final_score = min(100.0, round(score, 1))
+
+        if final_score >= 75.0:
+            severity = "CRITICAL"
+        elif final_score >= 50.0:
+            severity = "HIGH"
+        elif final_score >= 25.0:
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
+
+        return {
+            "score": final_score,
+            "severity": severity,
+            "total_entities_evaluated": total_nodes,
+            "risk_factors": factors,
+        }
+
+
+class ThematicClusteringEngine:
+    """
+    Lightweight N-gram Semantic Clustering Engine (inspired by carrot2).
+    Groups investigation text snippets, account categories, and topics into natural thematic clusters.
+    """
+
+    STOPWORDS = {
+        "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with", "by", "of", "from",
+        "dan", "di", "ke", "dari", "yang", "ini", "itu", "untuk", "pada", "dengan", "adalah"
+    }
+
+    @classmethod
+    def cluster_entities(cls, graph: KnowledgeGraph) -> List[Dict[str, Any]]:
+        categories: Dict[str, List[str]] = {}
+
+        for nid, node in graph.nodes.items():
+            attrs = node.attributes or {}
+            cat = attrs.get("category") or attrs.get("platform") or node.type.value
+            cat_name = str(cat).capitalize()
+            categories.setdefault(cat_name, []).append(nid)
+
+        clusters = []
+        for cat_name, nids in sorted(categories.items(), key=lambda x: len(x[1]), reverse=True):
+            clusters.append({
+                "theme": cat_name,
+                "entity_count": len(nids),
+                "node_ids": nids,
+                "sample_labels": [graph.nodes[nid].label or nid for nid in nids[:5]],
+            })
+
+        return clusters
+
+

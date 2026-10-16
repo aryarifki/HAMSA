@@ -17,10 +17,14 @@ from hamsa.plugins.base import BasePlugin
 from hamsa.plugins.email.hudsonrock_infostealer import HudsonRockInfostealerPlugin
 from hamsa.plugins.email.xposedornot_breach import XposedOrNotBreachPlugin
 from hamsa.plugins.exif.photo_metadata import ExifMetadataPlugin
+from hamsa.plugins.network.crtsh_subdomains import CrtshSubdomainPlugin
+from hamsa.plugins.network.geoip_lookup import GeoIPLookupPlugin
+from hamsa.plugins.network.shodan_internetdb import ShodanInternetDBPlugin
 from hamsa.plugins.phone.contact_tags import ContactTagResolverPlugin
 from hamsa.plugins.phone.phone_infoga import PhoneInfogaDorksPlugin
 from hamsa.plugins.phone.phone_parser import PhoneParserPlugin
 from hamsa.plugins.phone.phone_presence import PhonePresencePlugin
+from hamsa.plugins.social.instagram_lookup import InstagramLookupPlugin
 from hamsa.plugins.username.fast_checker import FastUsernameCheckerPlugin
 from hamsa.plugins.username.name_resolver import NameResolverPlugin
 from hamsa.utils.formatters import log_debug, log_error, log_info, log_success
@@ -37,6 +41,7 @@ class Orchestrator:
     def _register_default_plugins(self) -> None:
         """Loads default built-in core plugins."""
         self.register_plugin(FastUsernameCheckerPlugin())
+        self.register_plugin(InstagramLookupPlugin())
         self.register_plugin(XposedOrNotBreachPlugin())
         self.register_plugin(HudsonRockInfostealerPlugin())
         self.register_plugin(PhoneParserPlugin())
@@ -45,6 +50,9 @@ class Orchestrator:
         self.register_plugin(PhoneInfogaDorksPlugin())
         self.register_plugin(ExifMetadataPlugin())
         self.register_plugin(NameResolverPlugin())
+        self.register_plugin(ShodanInternetDBPlugin())
+        self.register_plugin(CrtshSubdomainPlugin())
+        self.register_plugin(GeoIPLookupPlugin())
 
     def register_plugin(self, plugin: BasePlugin) -> None:
         """Register a new plugin instance into the pool."""
