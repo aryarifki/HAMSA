@@ -34,7 +34,7 @@ class InstagramLookupPlugin(BasePlugin):
 
     def __init__(self) -> None:
         super().__init__()
-        self.http_client = HttpClient(timeout=8.0, default_delay=0.2)
+        self.http_client = HttpClient(timeout=4.0, default_delay=0.0)
 
     async def run(
         self,
@@ -69,6 +69,7 @@ class InstagramLookupPlugin(BasePlugin):
                 headers=headers,
                 data=signed_payload.encode("utf-8"),
                 jitter=False,
+                retries=1,
             )
 
             attributes: Dict[str, Any] = {

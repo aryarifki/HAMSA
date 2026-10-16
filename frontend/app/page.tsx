@@ -408,6 +408,19 @@ export default function HomePage() {
               </div>
             </div>
           )}
+
+          {/* ZERO FINDINGS EMPTY STATE */}
+          {displayAccounts.length === 0 && displayBreaches.length === 0 && displayPhones.length === 0 && (
+            <div className="p-8 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] text-center space-y-2 border border-dashed border-[var(--md-sys-color-outline-variant)]">
+              <Icon icon="ph:shield-check-duotone" className="mx-auto text-emerald-500" width="32" />
+              <p className="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
+                No matching public records or exposures detected
+              </p>
+              <p className="text-xs text-[var(--md-sys-color-on-surface-variant)] max-w-md mx-auto">
+                No active accounts, data breach records, or contact tags were identified for this target across the probed platforms.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

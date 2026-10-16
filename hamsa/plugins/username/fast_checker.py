@@ -95,7 +95,7 @@ class FastUsernameCheckerPlugin(BasePlugin):
 
     def __init__(self) -> None:
         super().__init__()
-        self.http_client = HttpClient(timeout=8.0, default_delay=0.1)
+        self.http_client = HttpClient(timeout=3.5, default_delay=0.0)
 
     async def _is_soft_404_control(
         self,
@@ -117,7 +117,7 @@ class FastUsernameCheckerPlugin(BasePlugin):
             control_url = f"{url_template.rstrip('/')}/{control_user}"
 
         try:
-            c_status, c_body, _ = await self.http_client.request(control_url, method="GET", jitter=False)
+            c_status, c_body, _ = await self.http_client.request(control_url, method="GET", jitter=False, retries=1)
             if c_status != target_status:
                 return False
             c_text = c_body.decode("utf-8", errors="ignore")
@@ -145,7 +145,7 @@ class FastUsernameCheckerPlugin(BasePlugin):
 
         candidates: List[tuple[str, TargetType, str]] = []
         try:
-            status, body, _ = await self.http_client.request(url, method="GET", jitter=False)
+            status, body, _ = await self.http_client.request(url, method="GET", jitter=False, retries=1)
             if status == platform.get("check_status", 200):
                 body_text = body.decode("utf-8", errors="ignore")
 

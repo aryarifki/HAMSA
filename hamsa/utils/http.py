@@ -164,9 +164,10 @@ class HttpClient:
         headers: Optional[Dict[str, str]] = None,
         data: Optional[bytes] = None,
         jitter: bool = True,
+        retries: int = 2,
     ) -> Tuple[int, bytes, Dict[str, str]]:
         """Asynchronously execute HTTP request with jitter and exponential backoff on 429/failures."""
-        max_retries = 3
+        max_retries = max(1, retries)
         for attempt in range(max_retries):
             if jitter and self.default_delay > 0:
                 delay = self.default_delay + random.uniform(0.05, 0.2)
@@ -180,13 +181,13 @@ class HttpClient:
                         retry_after = float(retry_after_str)
                     except ValueError:
                         retry_after = 2.0 ** (attempt + 1)
-                    await asyncio.sleep(min(retry_after, 10.0))
+                    await asyncio.sleep(min(retry_after, 5.0))
                     continue
                 return status, body, resp_headers
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise RuntimeError(f"HTTP request failed after {max_retries} attempts for {url}: {e}")
-                await asyncio.sleep(1.0 * (attempt + 1))
+                await asyncio.sleep(0.5 * (attempt + 1))
         return 500, b"", {}
 
     async def get_json(

@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -909,7 +909,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8888) -> None:
         log_info("FastAPI/Uvicorn not found. Operating in lightweight stdlib HTTP server mode.")
 
     server_address = (host, port)
-    httpd = HTTPServer(server_address, HamsaApiHandler)
+    httpd = ThreadingHTTPServer(server_address, HamsaApiHandler)
     log_success(f"Hamsa Web Dashboard & REST API is running at: http://{host}:{port}")
     log_info("Press Ctrl+C to terminate the web server.")
     try:

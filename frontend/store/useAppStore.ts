@@ -67,7 +67,7 @@ export const useAppStore = create<AppState>()(
       sidebarOpen: false,
       activeTarget: "torvalds",
       activeTargetType: "username",
-      depth: 2,
+      depth: 1,
       recursive: true,
       allSites: false,
       getcontactToken: "",
